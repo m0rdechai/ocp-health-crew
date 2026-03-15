@@ -381,6 +381,10 @@
                     <span class="sidebar-icon">🤖</span>
                     AI Features
                 </a>
+                <a href="#gemini-ai-rca" class="sidebar-item">
+                    <span class="sidebar-icon">✨</span>
+                    Gemini AI RCA
+                </a>
                 <a href="#ai-evolution" class="sidebar-item">
                     <span class="sidebar-icon">🧬</span>
                     How AI Evolves
@@ -388,6 +392,10 @@
                 <a href="#ai-example" class="sidebar-item">
                     <span class="sidebar-icon">💡</span>
                     Real Example
+                </a>
+                <a href="#knowledge-bases" class="sidebar-item">
+                    <span class="sidebar-icon">🗄️</span>
+                    Knowledge Bases
                 </a>
                 <a href="#performance-engineering" class="sidebar-item">
                     <span class="sidebar-icon">📊</span>
@@ -428,6 +436,10 @@
                     <span class="sidebar-icon">📅</span>
                     Scheduling
                 </a>
+                <a href="#gemini-ai-rca-docs" class="sidebar-item">
+                    <span class="sidebar-icon">✨</span>
+                    Gemini AI RCA
+                </a>
                 <a href="#jira-integration" class="sidebar-item">
                     <span class="sidebar-icon">🎫</span>
                     Jira Integration
@@ -454,6 +466,10 @@
             </div>
             <div class="sidebar-section">
                 <div class="sidebar-title">🏗️ Technical</div>
+                <a href="#data-storage" class="sidebar-item">
+                    <span class="sidebar-icon">🗄️</span>
+                    Data Storage
+                </a>
                 <a href="#project-structure" class="sidebar-item">
                     <span class="sidebar-icon">📁</span>
                     Project Structure
@@ -595,9 +611,10 @@
                     <td style="text-align:center;"><span style="font-size:20px;">🔍</span><br><strong>Analyze</strong><br><span style="color:#6b7280;font-size:12px;">Pattern match</span></td>
                     <td style="text-align:center;"><span style="font-size:20px;">📝</span><br><strong>Report</strong><br><span style="color:#6b7280;font-size:12px;">HTML output</span></td>
                 </tr>
-                <tr><th colspan="5" style="background:linear-gradient(135deg,#0277bd,#0288d1);color:white;text-align:center;font-size:14px;letter-spacing:1px;">🤖 AI LAYER (Optional)</th></tr>
+                <tr><th colspan="5" style="background:linear-gradient(135deg,#0277bd,#0288d1);color:white;text-align:center;font-size:14px;letter-spacing:1px;">🤖 AI / RCA LAYER</th></tr>
                 <tr>
-                    <td style="text-align:center;" colspan="2"><span style="font-size:20px;">🧠</span> <strong>Pattern-Based RCA</strong><br><span style="color:#6b7280;font-size:12px;">Known issue matching</span></td>
+                    <td style="text-align:center;"><span style="font-size:20px;">✨</span> <strong>Gemini AI RCA</strong><br><span style="color:#6b7280;font-size:12px;">LLM analysis</span></td>
+                    <td style="text-align:center;"><span style="font-size:20px;">🧠</span> <strong>Pattern RCA</strong><br><span style="color:#6b7280;font-size:12px;">Rule-based matching</span></td>
                     <td style="text-align:center;"><span style="font-size:20px;">🎫</span> <strong>Jira MCP</strong><br><span style="color:#6b7280;font-size:12px;">Bug correlation</span></td>
                     <td style="text-align:center;"><span style="font-size:20px;">📧</span> <strong>Gmail MCP</strong><br><span style="color:#6b7280;font-size:12px;">Email search</span></td>
                     <td style="text-align:center;"><span style="font-size:20px;">🌐</span> <strong>Web Search</strong><br><span style="color:#6b7280;font-size:12px;">Documentation</span></td>
@@ -630,8 +647,8 @@
                 </tr>
                 <tr>
                     <td><strong>AI/ML</strong></td>
-                    <td>Pattern matching, Ollama (planned)</td>
-                    <td>Root cause analysis, Jira bug correlation</td>
+                    <td>Google Gemini (google-genai), Pattern matching</td>
+                    <td>LLM root cause analysis, rule-based RCA, Jira bug correlation</td>
                 </tr>
                 <tr>
                     <td><strong>Integrations</strong></td>
@@ -665,6 +682,11 @@
                     <th>Data Sources</th>
                 </tr>
                 <tr>
+                    <td><strong>✨ Gemini AI RCA</strong></td>
+                    <td>LLM-powered root cause analysis using Google Gemini. Correlates failures across subsystems, ranks by severity, and provides specific remediation commands.</td>
+                    <td>All health check data + Gemini 2.5 Pro</td>
+                </tr>
+                <tr>
                     <td><strong>🎫 Jira Bug Matching</strong></td>
                     <td>Automatically matches detected issues to known Jira bugs</td>
                     <td>CNV, OCPBUGS, ODF projects</td>
@@ -690,6 +712,123 @@
                     <td>Live cluster data + Jira bug database</td>
                 </tr>
             </table>
+            
+            <!-- GEMINI AI RCA -->
+            <h2 id="gemini-ai-rca">✨ Gemini AI Root Cause Analysis</h2>
+            
+            <p style="font-size:1.05em;">
+                The <code>--ai-rca</code> flag activates LLM-powered analysis using <strong>Google Gemini 2.5 Pro</strong>.
+                Gemini always runs <strong>after</strong> the pattern matching phase -- the rule engine's findings are
+                passed to the AI so it focuses on cross-subsystem correlations and gaps rather than rediscovering known issues.
+            </p>
+            
+            <h3>The Three Phases</h3>
+            
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin:20px 0;">
+                <div class="feature-card" style="border-top:3px solid #73BF69;">
+                    <h4 style="color:#73BF69;margin-top:0;">Phase 1: Pattern Matching</h4>
+                    <div style="font-size:0.85em;color:var(--text-secondary);margin-bottom:8px;">Always runs &bull; Instant &bull; No cluster calls</div>
+                    <p style="margin:0 0 10px 0;">Compares collected data against 18 known issue patterns in memory. Pure string matching, no SSH.</p>
+                    <div style="font-weight:600;margin-bottom:6px;">Produces:</div>
+                    <ul style="margin:0;font-size:0.92em;">
+                        <li>Which pattern matched (e.g., "virt-handler-memory-leak")</li>
+                        <li>Related Jira bugs (e.g., CNV-66551)</li>
+                        <li>Suspected root cause</li>
+                        <li>Suggested remediation</li>
+                    </ul>
+                </div>
+                <div class="feature-card" style="border-top:3px solid #FF9830;">
+                    <h4 style="color:#FF9830;margin-top:0;">Phase 2: Deep Investigation</h4>
+                    <div style="font-size:0.85em;color:var(--text-secondary);margin-bottom:8px;">Only with <code>--ai</code> &bull; 10-30s/issue &bull; Live SSH</div>
+                    <p style="margin:0 0 10px 0;">Goes back to the cluster over SSH and runs targeted <code>oc</code> commands based on what Phase 1 found.</p>
+                    <div style="font-weight:600;margin-bottom:6px;">Example:</div>
+                    <ul style="margin:0;font-size:0.92em;">
+                        <li>Pattern found "pod-crashloop" →</li>
+                        <li><code>oc logs &lt;pod&gt; --tail=50</code></li>
+                        <li><code>oc describe pod &lt;pod&gt;</code></li>
+                        <li>Scans output: "OOMKilled at 512Mi"</li>
+                    </ul>
+                </div>
+                <div class="feature-card" style="border-top:3px solid #5794F2;">
+                    <h4 style="color:#5794F2;margin-top:0;">Phase 3: Gemini AI</h4>
+                    <div style="font-size:0.85em;color:var(--text-secondary);margin-bottom:8px;">With <code>--ai-rca</code> &bull; ~5-10s &bull; API call</div>
+                    <p style="margin:0 0 10px 0;">Receives the raw data <strong>plus</strong> all findings from Phases 1-2. Focuses on what the rules can't do.</p>
+                    <div style="font-weight:600;margin-bottom:6px;">Adds:</div>
+                    <ul style="margin:0;font-size:0.92em;">
+                        <li>Cross-subsystem failure correlation</li>
+                        <li>Root cause chain (what failed first)</li>
+                        <li>Confirms/challenges pattern findings</li>
+                        <li>Fills gaps the rules missed</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <h3>What runs when?</h3>
+            <table>
+                <tr>
+                    <th>Flag</th>
+                    <th>Phase 1<br>Pattern Matching</th>
+                    <th>Phase 2<br>Deep Investigation</th>
+                    <th>Phase 3<br>Gemini AI</th>
+                </tr>
+                <tr>
+                    <td><code>--ai-rca</code></td>
+                    <td style="color:#73BF69;">✅ Yes</td>
+                    <td style="color:var(--text-secondary);">❌ No</td>
+                    <td style="color:#5794F2;">✅ Yes</td>
+                </tr>
+                <tr>
+                    <td><code>--ai --ai-rca</code></td>
+                    <td style="color:#73BF69;">✅ Yes</td>
+                    <td style="color:#FF9830;">✅ Yes</td>
+                    <td style="color:#5794F2;">✅ Yes (richer input)</td>
+                </tr>
+                <tr>
+                    <td><code>--ai</code></td>
+                    <td style="color:#73BF69;">✅ Yes</td>
+                    <td style="color:#FF9830;">✅ Yes</td>
+                    <td style="color:var(--text-secondary);">❌ No</td>
+                </tr>
+                <tr>
+                    <td><code>--rca-bugs</code></td>
+                    <td style="color:#73BF69;">✅ Yes</td>
+                    <td style="color:var(--text-secondary);">❌ No</td>
+                    <td style="color:var(--text-secondary);">❌ No</td>
+                </tr>
+                <tr>
+                    <td>(no flag)</td>
+                    <td style="color:var(--text-secondary);">❌ No</td>
+                    <td style="color:var(--text-secondary);">❌ No</td>
+                    <td style="color:var(--text-secondary);">❌ No</td>
+                </tr>
+            </table>
+            
+            <table>
+                <tr>
+                    <th>Detail</th>
+                    <th>Value</th>
+                </tr>
+                <tr>
+                    <td><strong>Model</strong></td>
+                    <td><code>gemini-2.5-pro</code> (configurable via <code>GEMINI_MODEL</code> env var)</td>
+                </tr>
+                <tr>
+                    <td><strong>Cost per run</strong></td>
+                    <td>~$0.003 (input is summarized to keep token usage low)</td>
+                </tr>
+                <tr>
+                    <td><strong>Fallback</strong></td>
+                    <td>If <code>GEMINI_API_KEY</code> is missing or the API call fails, the report generates without the AI section. The health check never breaks.</td>
+                </tr>
+                <tr>
+                    <td><strong>Pattern-first</strong></td>
+                    <td>Pattern matching always runs first (fast, free). Gemini builds on those findings. With <code>--ai --ai-rca</code>, deep investigation results are also included.</td>
+                </tr>
+            </table>
+            
+            <div class="step-box">
+                <strong>Setup:</strong> Set the <code>GEMINI_API_KEY</code> environment variable on the host running the health check. Then pass <code>--ai-rca</code> when running a build.
+            </div>
             
             <!-- HOW THE AI EVOLVES -->
             <h2 id="ai-evolution">🧬 How the AI Evolves</h2>
@@ -763,6 +902,149 @@
                     <span style="font-size:1.2em;">✅</span> <strong>Result:</strong> New test automatically added to suite!
                 </div>
             </div>
+            
+            <!-- KNOWLEDGE BASES & DATA STORAGE -->
+            <h2 id="knowledge-bases">🗄️ Knowledge Bases & Data Storage</h2>
+            
+            <p style="font-size:1.05em;">
+                The system uses three types of storage: a <strong>SQLite database</strong> for application data,
+                <strong>JSON flat files</strong> for runtime state, and a <strong>dynamic knowledge base</strong>
+                (<code>knowledge/</code> directory) that the RCA pattern engine loads at runtime.
+            </p>
+            
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin:20px 0;">
+                <div class="feature-card" style="border-top:3px solid #5794F2;">
+                    <h4 style="color:#5794F2;margin-top:0;">💾 SQLite Database</h4>
+                    <div style="font-size:0.85em;color:var(--text-secondary);margin-bottom:8px;">instance/healthcrew.db &bull; Managed by SQLAlchemy</div>
+                    <ul style="margin:0;font-size:0.92em;">
+                        <li><strong>Users</strong> - accounts, roles, passwords</li>
+                        <li><strong>Builds</strong> - status, output, report file</li>
+                        <li><strong>Hosts</strong> - SSH target hosts</li>
+                        <li><strong>Custom Checks</strong> - user-defined commands</li>
+                        <li><strong>Templates</strong> - saved check presets</li>
+                        <li><strong>Audit Log</strong> - admin action history</li>
+                    </ul>
+                </div>
+                <div class="feature-card" style="border-top:3px solid #73BF69;">
+                    <h4 style="color:#73BF69;margin-top:0;">📁 JSON Flat Files</h4>
+                    <div style="font-size:0.85em;color:var(--text-secondary);margin-bottom:8px;">Runtime state &bull; Updated after each build</div>
+                    <ul style="margin:0;font-size:0.92em;">
+                        <li><strong>.learning_data.json</strong> - discovered patterns, recurring issues</li>
+                        <li><strong>.suggested_checks.json</strong> - pending Jira-suggested checks</li>
+                        <li><strong>.settings.json</strong> - UI settings, thresholds</li>
+                        <li><strong>schedules.json</strong> - scheduled builds</li>
+                    </ul>
+                </div>
+                <div class="feature-card" style="border-top:3px solid #ce93d8;">
+                    <h4 style="color:#ce93d8;margin-top:0;">🧠 Dynamic Knowledge Base</h4>
+                    <div style="font-size:0.85em;color:var(--text-secondary);margin-bottom:8px;">knowledge/ &bull; Self-evolving</div>
+                    <ul style="margin:0;font-size:0.92em;">
+                        <li><strong>known_issues.json</strong> - issue patterns from 5 sources</li>
+                        <li><strong>known_bugs.json</strong> - growing Jira bug cache</li>
+                        <li>Managed by <code>knowledge_base.py</code></li>
+                        <li>Admin UI: <code>/admin/knowledge</code></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="highlight-box">
+                <h3 style="margin-top:0;">🧠 Dynamic Knowledge Base - Self-Evolving</h3>
+                <p style="margin:0 0 12px 0;">
+                    The pattern engine loads its knowledge from <code>knowledge/known_issues.json</code> at runtime.
+                    Patterns grow from five sources. On first run, the JSON files are seeded from built-in defaults.
+                </p>
+                <table style="margin:0;">
+                    <tr><th>Source</th><th>How it enters</th><th>Confidence</th></tr>
+                    <tr>
+                        <td><span style="background:#1a3a5c;color:#4fc3f7;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">built-in</span></td>
+                        <td>Shipped with the code, seeded on first run from the original <code>KNOWN_ISSUES</code> dict (18 patterns)</td>
+                        <td>1.0</td>
+                    </tr>
+                    <tr>
+                        <td><span style="background:#2e4a1e;color:#8bc34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">user</span></td>
+                        <td>Added manually via the Knowledge Base admin page (<code>/admin/knowledge</code>)</td>
+                        <td>1.0</td>
+                    </tr>
+                    <tr>
+                        <td><span style="background:#4a3a1e;color:#ffb74d;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">learned</span></td>
+                        <td>Auto-promoted from the learning system when an issue recurs 3+ times across health check runs</td>
+                        <td>0.3-1.0</td>
+                    </tr>
+                    <tr>
+                        <td><span style="background:#3a1e4a;color:#ce93d8;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">gemini</span></td>
+                        <td>Suggested by Gemini AI after each RCA analysis; saved automatically, reviewable in admin UI</td>
+                        <td>0.5</td>
+                    </tr>
+                    <tr>
+                        <td><span style="background:#1e3a4a;color:#4dd0e1;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">jira-scan</span></td>
+                        <td>Bugs fetched from Jira API and cached in <code>known_bugs.json</code>; refreshable from admin UI</td>
+                        <td>varies</td>
+                    </tr>
+                </table>
+                <p style="margin:12px 0 0 0;font-size:0.9em;color:var(--text-secondary);">
+                    Each pattern carries: <code>source</code>, <code>confidence</code>, <code>created</code>, <code>last_matched</code>,
+                    and optionally <code>investigation_commands</code>. The engine deduplicates by keyword overlap (60% threshold).
+                </p>
+            </div>
+
+            <div style="margin:16px 0;padding:12px 16px;border-left:3px solid var(--accent);background:rgba(87,148,242,0.05);border-radius:0 8px 8px 0;">
+                <strong>Still hardcoded:</strong> <code>AVAILABLE_CHECKS</code> (15 health check definitions in <code>config/settings.py</code>)
+                defines <em>what data to collect</em>, not how to interpret it. Making these dynamic is a separate concern.
+            </div>
+            
+            <h3>How data flows through a build</h3>
+            <table>
+                <tr>
+                    <th style="width:40%;">Step</th>
+                    <th style="width:25%;">Reads from</th>
+                    <th style="width:35%;">Writes to</th>
+                </tr>
+                <tr>
+                    <td>User clicks "Run"</td>
+                    <td><code>AVAILABLE_CHECKS</code>, <code>.settings.json</code></td>
+                    <td>SQLite (Build record created)</td>
+                </tr>
+                <tr>
+                    <td>SSH + oc commands</td>
+                    <td>Live cluster via Paramiko</td>
+                    <td>In-memory data dict</td>
+                </tr>
+                <tr>
+                    <td>Phase 1: Pattern matching</td>
+                    <td><code>knowledge/known_issues.json</code></td>
+                    <td>In-memory analysis list</td>
+                </tr>
+                <tr>
+                    <td>Phase 2: Deep investigation</td>
+                    <td>Pattern's <code>investigation_commands</code> + live SSH</td>
+                    <td>In-memory analysis (enriched)</td>
+                </tr>
+                <tr>
+                    <td>Jira bug matching</td>
+                    <td><code>knowledge/known_bugs.json</code> (growing cache)</td>
+                    <td>In-memory analysis</td>
+                </tr>
+                <tr>
+                    <td>Phase 3: Gemini AI</td>
+                    <td>Gemini API (external)</td>
+                    <td>AI markdown for report</td>
+                </tr>
+                <tr>
+                    <td>Pattern learning</td>
+                    <td>In-memory analysis</td>
+                    <td><code>.learning_data.json</code></td>
+                </tr>
+                <tr>
+                    <td>Report generation</td>
+                    <td>All analysis data</td>
+                    <td><code>reports/*.html</code></td>
+                </tr>
+                <tr>
+                    <td>Build complete</td>
+                    <td>-</td>
+                    <td>SQLite (Build record updated)</td>
+                </tr>
+            </table>
             
             <!-- PERFORMANCE ENGINEERING -->
             <h2 id="performance-engineering">📊 Performance Engineering</h2>
@@ -1024,6 +1306,11 @@ http://localhost:5000
                     <td>Runs targeted investigation commands per issue type, matches against known Jira bugs, analyzes logs, suggests specific fixes.</td>
                     <td>🐢 Slower (10-30s/issue)</td>
                 </tr>
+                <tr>
+                    <td><strong>✨ Gemini AI RCA</strong></td>
+                    <td>Runs pattern matching first, then sends both the raw data and rule findings to Gemini 2.5 Pro. The AI confirms/challenges the pattern results and identifies cross-subsystem correlations the rules missed. Requires <code>GEMINI_API_KEY</code>.</td>
+                    <td>⚡ Fast (~5-10s)</td>
+                </tr>
             </table>
             
             <h3>📚 Data Sources for Bug Digging</h3>
@@ -1069,6 +1356,158 @@ http://localhost:5000
                     <td>Give your build a descriptive name for easy identification in history</td>
                 </tr>
             </table>
+            
+            <hr>
+            
+            <!-- Gemini AI RCA Docs -->
+            <h2 id="gemini-ai-rca-docs">✨ Gemini AI Root Cause Analysis</h2>
+            
+            <p>
+                The AI RCA pipeline has three phases. Gemini never starts from scratch -- it always builds
+                on the pattern engine's findings, which are fast and free.
+            </p>
+            
+            <h3>The Three Phases</h3>
+            <table>
+                <tr>
+                    <th style="width:20%;">Phase</th>
+                    <th style="width:15%;">Runs when</th>
+                    <th style="width:12%;">Speed</th>
+                    <th>What it does</th>
+                    <th>What it produces</th>
+                </tr>
+                <tr>
+                    <td><strong>1. Pattern Matching</strong><br><code>analyze_failures()</code></td>
+                    <td>Always (with any RCA flag)</td>
+                    <td>Instant</td>
+                    <td>Compares collected data against 18 known issue patterns in memory. Pure string matching, no SSH calls.</td>
+                    <td>Matched pattern name, related Jira bugs (e.g., CNV-66551), suspected root cause, suggested remediation</td>
+                </tr>
+                <tr>
+                    <td><strong>2. Deep Investigation</strong><br><code>run_deep_investigation()</code></td>
+                    <td>Only with <code>--ai</code></td>
+                    <td>10-30s per issue</td>
+                    <td>Goes back to the cluster over SSH and runs targeted <code>oc</code> commands based on what Phase 1 found. Example: pattern found "pod-crashloop" → runs <code>oc logs</code>, <code>oc describe pod</code>, <code>oc get events</code>.</td>
+                    <td>Actual log evidence (e.g., "OOMKilled at 512Mi limit"), event history, resource descriptions</td>
+                </tr>
+                <tr>
+                    <td><strong>3. Gemini AI</strong><br><code>analyze_with_gemini()</code></td>
+                    <td>Only with <code>--ai-rca</code></td>
+                    <td>~5-10s</td>
+                    <td>Receives the raw cluster data <strong>plus</strong> all findings from Phases 1-2 in a single prompt. Instructed to confirm/challenge the rule findings, identify cross-subsystem correlations, and fill gaps.</td>
+                    <td>Failure correlation, root cause chains, severity ranking, specific <code>oc</code> remediation commands</td>
+                </tr>
+            </table>
+            
+            <h3>What runs when?</h3>
+            <table>
+                <tr>
+                    <th>Flag</th>
+                    <th>Phase 1: Pattern Matching</th>
+                    <th>Phase 2: Deep Investigation</th>
+                    <th>Phase 3: Gemini AI</th>
+                </tr>
+                <tr>
+                    <td><code>--ai-rca</code></td>
+                    <td style="color:var(--success);">✅ Yes</td>
+                    <td>❌ No</td>
+                    <td style="color:var(--accent);">✅ Yes</td>
+                </tr>
+                <tr>
+                    <td><code>--ai --ai-rca</code></td>
+                    <td style="color:var(--success);">✅ Yes</td>
+                    <td style="color:var(--warning);">✅ Yes</td>
+                    <td style="color:var(--accent);">✅ Yes (richer input)</td>
+                </tr>
+                <tr>
+                    <td><code>--ai</code></td>
+                    <td style="color:var(--success);">✅ Yes</td>
+                    <td style="color:var(--warning);">✅ Yes</td>
+                    <td>❌ No</td>
+                </tr>
+                <tr>
+                    <td><code>--rca-bugs</code></td>
+                    <td style="color:var(--success);">✅ Yes</td>
+                    <td>❌ No</td>
+                    <td>❌ No</td>
+                </tr>
+                <tr>
+                    <td>(no flag)</td>
+                    <td>❌ No</td>
+                    <td>❌ No</td>
+                    <td>❌ No</td>
+                </tr>
+            </table>
+            
+            <h3>Setup</h3>
+            <div class="step-box">
+                <span class="step-number">1</span>
+                <strong>Get a Gemini API key</strong> from the <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a>
+            </div>
+            <div class="step-box">
+                <span class="step-number">2</span>
+                <strong>Set the environment variable</strong> on the host running the health check:
+                <pre style="margin:10px 0 0 0;"><code>export GEMINI_API_KEY="your-api-key-here"</code></pre>
+            </div>
+            <div class="step-box">
+                <span class="step-number">3</span>
+                <strong>Enable in builds</strong> by passing <code>--ai-rca</code> or enabling "Gemini AI RCA" in the build configuration
+            </div>
+            
+            <h3>Usage Examples</h3>
+            <pre><code># Patterns + AI (pattern matching runs automatically before Gemini)
+python3 healthchecks/hybrid_health_check.py --ai-rca
+
+# Patterns + deep investigation + AI (Gemini gets log evidence too)
+python3 healthchecks/hybrid_health_check.py --ai --ai-rca
+
+# Full stack: all three phases + Jira search
+python3 healthchecks/hybrid_health_check.py --ai --ai-rca --rca-jira</code></pre>
+            
+            <h3>Technical Details</h3>
+            <table>
+                <tr>
+                    <th>Aspect</th>
+                    <th>Detail</th>
+                </tr>
+                <tr>
+                    <td><strong>Module</strong></td>
+                    <td><code>healthchecks/ai_analysis.py</code></td>
+                </tr>
+                <tr>
+                    <td><strong>Model</strong></td>
+                    <td><code>gemini-2.5-pro</code> (override with <code>GEMINI_MODEL</code> env var)</td>
+                </tr>
+                <tr>
+                    <td><strong>SDK</strong></td>
+                    <td><code>google-genai</code> Python package</td>
+                </tr>
+                <tr>
+                    <td><strong>Temperature</strong></td>
+                    <td>0.3 (low for deterministic output)</td>
+                </tr>
+                <tr>
+                    <td><strong>Max output tokens</strong></td>
+                    <td>4096</td>
+                </tr>
+                <tr>
+                    <td><strong>Cost per run</strong></td>
+                    <td>~$0.003 (input is summarized to ~1-2K tokens)</td>
+                </tr>
+                <tr>
+                    <td><strong>Fallback</strong></td>
+                    <td>Skipped silently if API key is missing, SDK not installed, or API call fails</td>
+                </tr>
+            </table>
+            
+            <h3>Data Flow</h3>
+            <pre><code>collect_data() → analyze_failures() → [run_deep_investigation()] → _build_health_summary() + _build_rule_analysis_summary() → Gemini API → _md_to_html() → Report HTML</code></pre>
+            <p>
+                <code>_build_health_summary()</code> distills the raw cluster data (nodes, pods, operators, VMs, etc.).
+                <code>_build_rule_analysis_summary()</code> distills the pattern findings (matched issues, Jira refs, root causes)
+                and, when available, investigation results (actual log evidence). Both summaries are sent in a single prompt.
+                <code>_md_to_html()</code> converts the AI markdown response into styled HTML matching the report's dark theme.
+            </p>
             
             <hr>
             
@@ -1226,7 +1665,7 @@ http://localhost:5000
             <p>Configure default SSH host and user for connecting to target hosts.</p>
             
             <h3>🤖 AI Configuration</h3>
-            <p>Configure the Ollama model and URL for AI-powered root cause analysis.</p>
+            <p>Configure AI models for root cause analysis. Gemini AI RCA is configured via <code>GEMINI_API_KEY</code> and <code>GEMINI_MODEL</code> environment variables. Ollama (local LLM) can be configured through the Settings UI.</p>
             
             <h3>🎫 Jira Configuration</h3>
             <p>Set which Jira projects to scan, how far back to look for bugs, and the maximum bugs to analyze.</p>
@@ -1390,6 +1829,16 @@ http://localhost:5000
                     <td>Path to SSH private key</td>
                     <td>~/.ssh/id_rsa</td>
                 </tr>
+                <tr>
+                    <td><code>GEMINI_API_KEY</code></td>
+                    <td>Google Gemini API key for AI-powered RCA</td>
+                    <td>AIza...</td>
+                </tr>
+                <tr>
+                    <td><code>GEMINI_MODEL</code></td>
+                    <td>Gemini model name (default: gemini-2.5-pro)</td>
+                    <td>gemini-2.5-pro</td>
+                </tr>
             </table>
             
             <h3>Command Line Flags</h3>
@@ -1404,7 +1853,11 @@ http://localhost:5000
                 </tr>
                 <tr>
                     <td><code>--ai</code></td>
-                    <td>Enable full AI root cause analysis</td>
+                    <td>Enable full rule-based root cause analysis (pattern matching + investigation commands)</td>
+                </tr>
+                <tr>
+                    <td><code>--ai-rca</code></td>
+                    <td>Enable Gemini AI-powered root cause analysis (requires <code>GEMINI_API_KEY</code>)</td>
                 </tr>
                 <tr>
                     <td><code>--rca-bugs</code></td>
@@ -1435,19 +1888,166 @@ http://localhost:5000
                 <p style="text-align:center;opacity:0.9;">The following sections contain detailed technical information for developers and advanced users.</p>
             </div>
             
+            <!-- Data Storage -->
+            <h2 id="data-storage">🗄️ Data Storage & Knowledge Bases</h2>
+            
+            <p>The system stores data in three places. Understanding where each piece lives helps with debugging, backups, and extending the system.</p>
+            
+            <h3>💾 SQLite Database (<code>instance/healthcrew.db</code>)</h3>
+            <p>Managed by SQLAlchemy. Contains all structured application data.</p>
+            <table>
+                <tr>
+                    <th>Table</th>
+                    <th>What it stores</th>
+                    <th>Managed by</th>
+                </tr>
+                <tr>
+                    <td><code>User</code></td>
+                    <td>Usernames, emails, password hashes (bcrypt), roles, last login</td>
+                    <td><code>app/auth.py</code></td>
+                </tr>
+                <tr>
+                    <td><code>Build</code></td>
+                    <td>Build number, status, selected checks, options, console output, report path, duration</td>
+                    <td><code>app/routes.py</code></td>
+                </tr>
+                <tr>
+                    <td><code>Host</code></td>
+                    <td>SSH target hosts (name, hostname/IP, username)</td>
+                    <td><code>app/routes.py</code></td>
+                </tr>
+                <tr>
+                    <td><code>CustomCheck</code></td>
+                    <td>User-defined commands/scripts with match types (contains, regex, exit_code, etc.)</td>
+                    <td><code>app/routes.py</code></td>
+                </tr>
+                <tr>
+                    <td><code>Template</code></td>
+                    <td>Saved check presets (personal or shared)</td>
+                    <td><code>app/routes.py</code></td>
+                </tr>
+                <tr>
+                    <td><code>AuditLog</code></td>
+                    <td>Admin actions: what, who, when, from which IP</td>
+                    <td><code>app/admin.py</code></td>
+                </tr>
+            </table>
+            
+            <h3>📁 JSON Flat Files</h3>
+            <p>Runtime state files in the project root. These predate the SQLite migration and are still actively used.</p>
+            <table>
+                <tr>
+                    <th>File</th>
+                    <th>What it stores</th>
+                    <th>When it's written</th>
+                </tr>
+                <tr>
+                    <td><code>.learning_data.json</code></td>
+                    <td>
+                        <strong>Discovered patterns</strong> (issues appearing 3+ times become auto-discovered patterns),
+                        <strong>issue history</strong> (recent issues for trend analysis),
+                        <strong>recurring issues</strong> (frequency counts),
+                        <strong>learned fixes</strong> (what worked),
+                        <strong>accepted suggested checks</strong>
+                    </td>
+                    <td>After every build, by <code>app/learning.py</code></td>
+                </tr>
+                <tr>
+                    <td><code>.suggested_checks.json</code></td>
+                    <td>AI-suggested health checks from Jira scans, pending user accept/reject</td>
+                    <td>When "Scan Jira" is triggered from the UI</td>
+                </tr>
+                <tr>
+                    <td><code>.settings.json</code></td>
+                    <td>Alert thresholds (CPU, memory, etcd), Ollama model/URL, SSH defaults</td>
+                    <td>When user saves on the Settings page</td>
+                </tr>
+                <tr>
+                    <td><code>schedules.json</code></td>
+                    <td>Scheduled builds: type (once/recurring), frequency, time, checks, status</td>
+                    <td>When schedules are created/modified in the UI</td>
+                </tr>
+            </table>
+            
+            <h3>🧠 Dynamic Knowledge Base (<code>knowledge/</code>)</h3>
+            <p>
+                The pattern engine loads its knowledge at runtime from JSON files in the <code>knowledge/</code> directory.
+                On first run, files are seeded from the original built-in Python dicts. After that, the knowledge base
+                grows from five sources: built-in, user (admin UI), learned (auto-promoted), gemini (AI-suggested), and jira-scan.
+            </p>
+            <table>
+                <tr>
+                    <th>File</th>
+                    <th>What it contains</th>
+                    <th>Used by</th>
+                </tr>
+                <tr>
+                    <td><code>known_issues.json</code></td>
+                    <td>
+                        Issue patterns with: <code>pattern</code> (keyword list), <code>jira</code> (bug refs),
+                        <code>root_cause</code>, <code>suggestions</code>, <code>investigation_commands</code>,
+                        <code>source</code>, <code>confidence</code>, <code>created</code>, <code>last_matched</code>.
+                        Starts with 18 built-in patterns; grows via learning, Gemini, and user edits.
+                    </td>
+                    <td>Pattern Matching + Deep Investigation</td>
+                </tr>
+                <tr>
+                    <td><code>known_bugs.json</code></td>
+                    <td>
+                        Jira bug cache: status, resolution, fix versions, affected versions.
+                        Grows when new bugs are encountered. Refreshable from Jira API via admin UI.
+                    </td>
+                    <td><code>check_jira_bugs()</code></td>
+                </tr>
+            </table>
+            <p style="margin-top:12px;font-size:0.9em;color:var(--text-secondary);">
+                <strong>Still hardcoded:</strong> <code>AVAILABLE_CHECKS</code> (15 check definitions in <code>config/settings.py</code>)
+                defines what data to collect, not how to interpret it. Managed by <code>healthchecks/knowledge_base.py</code>.
+                Admin CRUD at <code>/admin/knowledge</code>.
+            </p>
+            
+            <h3>How data flows through a build</h3>
+            <pre><code>User clicks "Run"
+  |-- Build record created ------------> SQLite
+  |-- Check config loaded --------------> AVAILABLE_CHECKS (hardcoded)
+  |-- Thresholds loaded ----------------> .settings.json
+  |
+  |-- SSH + oc commands ----------------> Live cluster data (in memory)
+  |
+  |-- Phase 1: Pattern matching --------> knowledge/known_issues.json (dynamic)
+  |-- Phase 2: Deep investigation ------> Pattern's investigation_commands + live SSH
+  |-- Jira bug matching ----------------> knowledge/known_bugs.json (growing cache)
+  |-- Phase 3: Gemini AI ---------------> Gemini API (external)
+  |     '-- Gemini feedback loop -------> knowledge/known_issues.json (new patterns)
+  |
+  |-- Pattern learning -----------------> .learning_data.json
+  |     '-- Promotion (3+ hits) --------> knowledge/known_issues.json
+  |-- HTML report saved ----------------> reports/*.html
+  '-- Build record updated -------------> SQLite</code></pre>
+            
+            <hr>
+            
             <!-- Project Structure -->
             <h2 id="project-structure">📁 Project Structure</h2>
             
             <pre><code>ocp-health-crew/
 ├── run.py                       # Flask application entry point
-├── hybrid_health_check.py       # Main health check engine
-├── crewai_agents.py             # CrewAI agents (standalone CLI only)
+├── healthchecks/
+│   ├── hybrid_health_check.py   # Main health check engine
+│   ├── ai_analysis.py           # Gemini AI RCA + feedback loop
+│   ├── knowledge_base.py        # Dynamic knowledge store (load/save/merge)
+│   └── crewai_agents.py         # CrewAI agents (standalone CLI only)
+│
+├── knowledge/                   # Dynamic knowledge base (JSON)
+│   ├── known_issues.json        # Issue patterns from 5 sources
+│   └── known_bugs.json          # Growing Jira bug cache
 │
 ├── app/                         # Flask application
 │   ├── __init__.py             # Application factory
 │   ├── routes.py               # All Flask routes & API endpoints
+│   ├── admin.py                # Admin: users, audit, knowledge base CRUD
 │   ├── scheduler.py            # Background scheduler for recurring tasks
-│   ├── learning.py             # AI learning & pattern recognition
+│   ├── learning.py             # AI learning & pattern recognition + promotion
 │   │
 │   ├── templates/              # Jinja2 HTML templates
 │   │   ├── base.html          # Base template with navigation
@@ -1458,6 +2058,7 @@ http://localhost:5000
 │   │   ├── settings.html      # Settings page
 │   │   ├── build_detail.html  # Individual build details
 │   │   ├── console.html       # Live console output
+│   │   ├── admin_knowledge.html # Knowledge Base admin CRUD
 │   │   └── help.html          # This documentation
 │   │
 │   └── static/                 # Static assets
@@ -1676,7 +2277,7 @@ window.addEventListener('load', function() {
         showView('docs');
     } else if (hash) {
         // Check if hash belongs to about or docs section
-        var aboutSections = ['#overview', '#key-innovations', '#ai-features', '#ai-evolution', '#ai-example', '#health-checks-list', '#performance-engineering', '#scheduling-automation', '#reporting'];
+        var aboutSections = ['#overview', '#key-innovations', '#ai-features', '#gemini-ai-rca', '#ai-evolution', '#ai-example', '#knowledge-bases', '#health-checks-list', '#performance-engineering', '#scheduling-automation', '#reporting'];
         if (aboutSections.includes(hash)) {
             showView('about');
         } else {

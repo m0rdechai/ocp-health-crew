@@ -1,0 +1,395 @@
+{% extends "base.html" %}
+
+{% block title %}Knowledge Base - CNV HealthCrew AI{% endblock %}
+
+{% block breadcrumb %}
+<span>›</span>
+<a href="/admin/knowledge">Admin</a>
+<span>›</span>
+<span>Knowledge Base</span>
+{% endblock %}
+
+{% block content %}
+<style>
+    .kb-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+    .kb-badge.built-in { background:#1a3a5c; color:#4fc3f7; }
+    .kb-badge.user { background:#2e4a1e; color:#8bc34a; }
+    .kb-badge.learned { background:#4a3a1e; color:#ffb74d; }
+    .kb-badge.gemini { background:#3a1e4a; color:#ce93d8; }
+    .kb-badge.jira-scan { background:#1e3a4a; color:#4dd0e1; }
+    .kb-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .kb-table th { text-align:left; padding:10px 12px; border-bottom:2px solid var(--border); color:var(--text-secondary); font-weight:600; font-size:12px; text-transform:uppercase; }
+    .kb-table td { padding:10px 12px; border-bottom:1px solid var(--border); vertical-align:top; }
+    .kb-table tr:hover { background:rgba(255,255,255,0.03); }
+    .kb-actions button { background:none; border:none; cursor:pointer; padding:4px 8px; border-radius:4px; font-size:12px; }
+    .kb-actions .edit-btn { color:var(--accent); }
+    .kb-actions .delete-btn { color:#e57373; }
+    .kb-actions button:hover { background:rgba(255,255,255,0.08); }
+    .kb-keywords { display:flex; flex-wrap:wrap; gap:4px; }
+    .kb-kw { background:rgba(255,255,255,0.08); padding:1px 6px; border-radius:4px; font-size:11px; font-family:monospace; }
+    .filter-bar { display:flex; gap:8px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+    .filter-bar a { padding:6px 14px; border-radius:6px; font-size:12px; font-weight:600; text-decoration:none; border:1px solid var(--border); color:var(--text-secondary); }
+    .filter-bar a.active { background:var(--accent); color:white; border-color:var(--accent); }
+    .filter-bar a:hover:not(.active) { background:rgba(255,255,255,0.05); }
+    .stat-row { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+    .stat-box { background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:16px 20px; min-width:120px; }
+    .stat-box .stat-val { font-size:28px; font-weight:700; }
+    .stat-box .stat-label { font-size:12px; color:var(--text-secondary); margin-top:4px; }
+    .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:1000; align-items:center; justify-content:center; }
+    .modal-overlay.show { display:flex; }
+    .modal { background:var(--bg-card); border:1px solid var(--border); border-radius:12px; padding:24px; width:600px; max-width:95vw; max-height:85vh; overflow-y:auto; }
+    .modal h3 { margin:0 0 16px; }
+    .modal label { display:block; font-weight:600; margin:12px 0 6px; font-size:13px; }
+    .modal input, .modal textarea, .modal select { width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:var(--bg-secondary); color:var(--text); box-sizing:border-box; }
+    .modal textarea { min-height:60px; resize:vertical; font-family:inherit; }
+    .modal-btns { display:flex; gap:8px; margin-top:20px; justify-content:flex-end; }
+    .modal-btns button { padding:8px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; border:1px solid var(--border); }
+    .modal-btns .btn-primary { background:var(--accent); color:white; border-color:var(--accent); }
+    .modal-btns .btn-cancel { background:transparent; color:var(--text-secondary); }
+    .modal-btns .btn-danger { background:#d32f2f; color:white; border-color:#d32f2f; }
+    .tab-switch { display:flex; gap:0; margin-bottom:16px; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+    .tab-switch button { flex:1; padding:10px; background:transparent; border:none; color:var(--text-secondary); cursor:pointer; font-weight:600; font-size:13px; }
+    .tab-switch button.active { background:var(--accent); color:white; }
+    #searchInput { padding:8px 14px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:var(--bg-secondary); color:var(--text); width:220px; }
+</style>
+<div class="container">
+    <aside class="sidebar">
+        <div class="sidebar-section">
+            <div class="sidebar-title">Admin</div>
+            <a href="/admin/users" class="sidebar-item">
+                <span class="sidebar-icon">👥</span> User Management
+            </a>
+            <a href="/admin/audit" class="sidebar-item">
+                <span class="sidebar-icon">📜</span> Audit Log
+            </a>
+            <a href="/admin/knowledge" class="sidebar-item active">
+                <span class="sidebar-icon">🧠</span> Knowledge Base
+            </a>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-title">Stats</div>
+            <div style="padding:8px 12px;font-size:13px;color:var(--text-secondary);">
+                Patterns: <strong style="color:var(--text);">{{ stats.total_patterns }}</strong>
+            </div>
+            <div style="padding:8px 12px;font-size:13px;color:var(--text-secondary);">
+                Bugs: <strong style="color:var(--text);">{{ stats.total_bugs }}</strong>
+            </div>
+            {% for src, cnt in stats.by_source.items() %}
+            <div style="padding:4px 12px;font-size:12px;color:var(--text-secondary);">
+                <span class="kb-badge {{ src }}">{{ src }}</span> {{ cnt }}
+            </div>
+            {% endfor %}
+        </div>
+    </aside>
+
+    <main class="main">
+        <!-- Stat boxes -->
+        <div class="stat-row">
+            <div class="stat-box">
+                <div class="stat-val">{{ stats.total_patterns }}</div>
+                <div class="stat-label">Issue Patterns</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-val">{{ stats.total_bugs }}</div>
+                <div class="stat-label">Jira Bugs</div>
+            </div>
+            {% for src, cnt in stats.by_source.items() %}
+            <div class="stat-box">
+                <div class="stat-val" style="font-size:22px;"><span class="kb-badge {{ src }}">{{ src }}</span></div>
+                <div class="stat-label">{{ cnt }} patterns</div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Tab switch -->
+        <div class="tab-switch">
+            <button class="active" onclick="showTab('patterns', this)">Issue Patterns</button>
+            <button onclick="showTab('bugs', this)">Jira Bugs</button>
+        </div>
+
+        <!-- PATTERNS TAB -->
+        <div id="tab-patterns">
+            <div class="filter-bar">
+                <a href="/admin/knowledge" class="{{ 'active' if not source_filter }}">All</a>
+                <a href="/admin/knowledge?source=built-in" class="{{ 'active' if source_filter == 'built-in' }}">Built-in</a>
+                <a href="/admin/knowledge?source=user" class="{{ 'active' if source_filter == 'user' }}">User</a>
+                <a href="/admin/knowledge?source=learned" class="{{ 'active' if source_filter == 'learned' }}">Learned</a>
+                <a href="/admin/knowledge?source=gemini" class="{{ 'active' if source_filter == 'gemini' }}">Gemini</a>
+                <input type="text" id="searchInput" placeholder="Search patterns..." oninput="filterTable()">
+                <button onclick="openCreateIssue()" style="margin-left:auto;padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:6px;font-weight:600;cursor:pointer;">+ Add Pattern</button>
+            </div>
+            <div class="card" style="padding:0;overflow:auto;">
+                <table class="kb-table" id="issuesTable">
+                    <thead>
+                        <tr>
+                            <th>Key</th>
+                            <th>Title</th>
+                            <th>Source</th>
+                            <th>Keywords</th>
+                            <th>Jira</th>
+                            <th>Confidence</th>
+                            <th style="width:80px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for key, issue in issues.items() %}
+                        <tr data-key="{{ key }}">
+                            <td><code style="font-size:12px;">{{ key }}</code></td>
+                            <td>{{ issue.title }}</td>
+                            <td><span class="kb-badge {{ issue.source }}">{{ issue.source }}</span></td>
+                            <td><div class="kb-keywords">{% for kw in issue.pattern %}<span class="kb-kw">{{ kw }}</span>{% endfor %}</div></td>
+                            <td style="font-size:12px;">{{ issue.jira | join(', ') }}</td>
+                            <td>{{ '%.1f' % issue.confidence }}</td>
+                            <td class="kb-actions">
+                                <button class="edit-btn" onclick='editIssue("{{ key }}")' title="Edit">✏️</button>
+                                <button class="delete-btn" onclick='deleteIssue("{{ key }}")' title="Delete">🗑️</button>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- BUGS TAB -->
+        <div id="tab-bugs" style="display:none;">
+            <div class="filter-bar">
+                <input type="text" id="searchBugsInput" placeholder="Search bugs..." oninput="filterBugsTable()">
+                <button onclick="refreshBugs(this)" style="padding:8px 16px;background:transparent;color:var(--accent);border:1px solid var(--accent);border-radius:6px;font-weight:600;cursor:pointer;">Refresh from Jira</button>
+                <button onclick="openCreateBug()" style="margin-left:auto;padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:6px;font-weight:600;cursor:pointer;">+ Add Bug</button>
+            </div>
+            <div class="card" style="padding:0;overflow:auto;">
+                <table class="kb-table" id="bugsTable">
+                    <thead>
+                        <tr>
+                            <th>Jira Key</th>
+                            <th>Status</th>
+                            <th>Resolution</th>
+                            <th>Fix Versions</th>
+                            <th>Affects</th>
+                            <th>Source</th>
+                            <th style="width:80px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for jkey, bug in bugs.items() %}
+                        <tr data-key="{{ jkey }}">
+                            <td><code>{{ jkey }}</code></td>
+                            <td>{{ bug.status }}</td>
+                            <td>{{ bug.resolution or '-' }}</td>
+                            <td style="font-size:12px;">{{ bug.fix_versions | join(', ') if bug.fix_versions else '-' }}</td>
+                            <td style="font-size:12px;">{{ bug.affects | join(', ') if bug.affects else '-' }}</td>
+                            <td><span class="kb-badge {{ bug.source | default('built-in') }}">{{ bug.source | default('built-in') }}</span></td>
+                            <td class="kb-actions">
+                                <button class="edit-btn" onclick='editBug("{{ jkey }}")' title="Edit">✏️</button>
+                                <button class="delete-btn" onclick='deleteBug("{{ jkey }}")' title="Delete">🗑️</button>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- ISSUE MODAL -->
+<div class="modal-overlay" id="issueModal">
+    <div class="modal">
+        <h3 id="issueModalTitle">Add Pattern</h3>
+        <input type="hidden" id="issueModalMode" value="create">
+        <label>Key (unique identifier)</label>
+        <input type="text" id="im_key" placeholder="e.g. my-new-pattern">
+        <label>Title</label>
+        <input type="text" id="im_title" placeholder="Human-readable title">
+        <label>Keywords (comma-separated)</label>
+        <input type="text" id="im_pattern" placeholder="keyword1, keyword2, keyword3">
+        <label>Jira references (comma-separated)</label>
+        <input type="text" id="im_jira" placeholder="CNV-12345, OCPBUGS-67890">
+        <label>Description</label>
+        <textarea id="im_description" placeholder="What this issue looks like..."></textarea>
+        <label>Root causes (one per line)</label>
+        <textarea id="im_root_cause" placeholder="Cause 1&#10;Cause 2"></textarea>
+        <label>Suggestions (one per line)</label>
+        <textarea id="im_suggestions" placeholder="Step 1&#10;Step 2"></textarea>
+        <label>Verify command</label>
+        <input type="text" id="im_verify_cmd" placeholder="oc get ...">
+        <div class="modal-btns">
+            <button class="btn-cancel" onclick="closeModal('issueModal')">Cancel</button>
+            <button class="btn-primary" onclick="submitIssue()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- BUG MODAL -->
+<div class="modal-overlay" id="bugModal">
+    <div class="modal">
+        <h3 id="bugModalTitle">Add Bug</h3>
+        <input type="hidden" id="bugModalMode" value="create">
+        <label>Jira Key</label>
+        <input type="text" id="bm_key" placeholder="CNV-12345">
+        <label>Status</label>
+        <select id="bm_status">
+            <option>Open</option><option>In Progress</option><option>Closed</option><option>Done</option>
+        </select>
+        <label>Resolution</label>
+        <input type="text" id="bm_resolution" placeholder="Done, Won't Fix, etc.">
+        <label>Fix Versions (comma-separated)</label>
+        <input type="text" id="bm_fix_versions" placeholder="CNV 4.17.0, OCP 4.18.0">
+        <label>Affects Versions (comma-separated)</label>
+        <input type="text" id="bm_affects" placeholder="CNV 4.16, OCP 4.17">
+        <div class="modal-btns">
+            <button class="btn-cancel" onclick="closeModal('bugModal')">Cancel</button>
+            <button class="btn-primary" onclick="submitBug()">Save</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const issuesData = {{ issues | tojson }};
+const bugsData = {{ bugs | tojson }};
+
+function showTab(name, btn) {
+    document.getElementById('tab-patterns').style.display = name === 'patterns' ? '' : 'none';
+    document.getElementById('tab-bugs').style.display = name === 'bugs' ? '' : 'none';
+    document.querySelectorAll('.tab-switch button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+}
+
+function filterTable() {
+    const q = document.getElementById('searchInput').value.toLowerCase();
+    document.querySelectorAll('#issuesTable tbody tr').forEach(r => {
+        r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+}
+function filterBugsTable() {
+    const q = document.getElementById('searchBugsInput').value.toLowerCase();
+    document.querySelectorAll('#bugsTable tbody tr').forEach(r => {
+        r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+}
+
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+function openCreateIssue() {
+    document.getElementById('issueModalTitle').textContent = 'Add Pattern';
+    document.getElementById('issueModalMode').value = 'create';
+    ['im_key','im_title','im_pattern','im_jira','im_description','im_root_cause','im_suggestions','im_verify_cmd'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('im_key').readOnly = false;
+    document.getElementById('issueModal').classList.add('show');
+}
+
+function editIssue(key) {
+    const issue = issuesData[key];
+    if (!issue) return;
+    document.getElementById('issueModalTitle').textContent = 'Edit Pattern: ' + key;
+    document.getElementById('issueModalMode').value = 'edit';
+    document.getElementById('im_key').value = key;
+    document.getElementById('im_key').readOnly = true;
+    document.getElementById('im_title').value = issue.title || '';
+    document.getElementById('im_pattern').value = (issue.pattern || []).join(', ');
+    document.getElementById('im_jira').value = (issue.jira || []).join(', ');
+    document.getElementById('im_description').value = issue.description || '';
+    document.getElementById('im_root_cause').value = (issue.root_cause || []).join('\n');
+    document.getElementById('im_suggestions').value = (issue.suggestions || []).join('\n');
+    document.getElementById('im_verify_cmd').value = issue.verify_cmd || '';
+    document.getElementById('issueModal').classList.add('show');
+}
+
+function submitIssue() {
+    const mode = document.getElementById('issueModalMode').value;
+    const key = document.getElementById('im_key').value.trim();
+    if (!key) { alert('Key is required'); return; }
+    const payload = {
+        key: key,
+        title: document.getElementById('im_title').value,
+        pattern: document.getElementById('im_pattern').value,
+        jira: document.getElementById('im_jira').value,
+        description: document.getElementById('im_description').value,
+        root_cause: document.getElementById('im_root_cause').value,
+        suggestions: document.getElementById('im_suggestions').value,
+        verify_cmd: document.getElementById('im_verify_cmd').value,
+    };
+    const url = mode === 'create' ? '/admin/api/knowledge/issues' : '/admin/api/knowledge/issues/' + encodeURIComponent(key);
+    const method = mode === 'create' ? 'POST' : 'PUT';
+    fetch(url, { method: method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+        .then(r => r.json()).then(d => {
+            if (d.success) { location.reload(); } else { alert(d.error || 'Error'); }
+        }).catch(e => alert('Request failed: ' + e));
+}
+
+function deleteIssue(key) {
+    if (!confirm('Delete pattern "' + key + '"?')) return;
+    fetch('/admin/api/knowledge/issues/' + encodeURIComponent(key), { method: 'DELETE' })
+        .then(r => r.json()).then(d => {
+            if (d.success) { location.reload(); } else { alert(d.error || 'Error'); }
+        });
+}
+
+function openCreateBug() {
+    document.getElementById('bugModalTitle').textContent = 'Add Bug';
+    document.getElementById('bugModalMode').value = 'create';
+    ['bm_key','bm_resolution','bm_fix_versions','bm_affects'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('bm_status').value = 'Open';
+    document.getElementById('bm_key').readOnly = false;
+    document.getElementById('bugModal').classList.add('show');
+}
+
+function editBug(jkey) {
+    const bug = bugsData[jkey];
+    if (!bug) return;
+    document.getElementById('bugModalTitle').textContent = 'Edit Bug: ' + jkey;
+    document.getElementById('bugModalMode').value = 'edit';
+    document.getElementById('bm_key').value = jkey;
+    document.getElementById('bm_key').readOnly = true;
+    document.getElementById('bm_status').value = bug.status || 'Open';
+    document.getElementById('bm_resolution').value = bug.resolution || '';
+    document.getElementById('bm_fix_versions').value = (bug.fix_versions || []).join(', ');
+    document.getElementById('bm_affects').value = (bug.affects || []).join(', ');
+    document.getElementById('bugModal').classList.add('show');
+}
+
+function submitBug() {
+    const mode = document.getElementById('bugModalMode').value;
+    const jkey = document.getElementById('bm_key').value.trim();
+    if (!jkey) { alert('Jira key is required'); return; }
+    const payload = {
+        jira_key: jkey,
+        status: document.getElementById('bm_status').value,
+        resolution: document.getElementById('bm_resolution').value,
+        fix_versions: document.getElementById('bm_fix_versions').value,
+        affects: document.getElementById('bm_affects').value,
+    };
+    const url = mode === 'create' ? '/admin/api/knowledge/bugs' : '/admin/api/knowledge/bugs/' + encodeURIComponent(jkey);
+    const method = mode === 'create' ? 'POST' : 'PUT';
+    fetch(url, { method: method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+        .then(r => r.json()).then(d => {
+            if (d.success) { location.reload(); } else { alert(d.error || 'Error'); }
+        }).catch(e => alert('Request failed: ' + e));
+}
+
+function deleteBug(jkey) {
+    if (!confirm('Delete bug "' + jkey + '"?')) return;
+    fetch('/admin/api/knowledge/bugs/' + encodeURIComponent(jkey), { method: 'DELETE' })
+        .then(r => r.json()).then(d => {
+            if (d.success) { location.reload(); } else { alert(d.error || 'Error'); }
+        });
+}
+
+function refreshBugs(btn) {
+    btn.disabled = true;
+    btn.textContent = 'Refreshing...';
+    fetch('/admin/api/knowledge/bugs/refresh', { method: 'POST' })
+        .then(r => r.json()).then(d => {
+            if (d.success) {
+                alert(d.message);
+                if (d.updated > 0) location.reload();
+            } else {
+                alert(d.error || 'Refresh failed');
+            }
+            btn.disabled = false;
+            btn.textContent = 'Refresh from Jira';
+        }).catch(e => { alert('Request failed: ' + e); btn.disabled = false; btn.textContent = 'Refresh from Jira'; });
+}
+</script>
+{% endblock %}

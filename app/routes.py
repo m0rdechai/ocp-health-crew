@@ -1483,9 +1483,38 @@ def load_suggested_checks():
         try:
             with open(SUGGESTED_CHECKS_FILE, 'r') as f:
                 suggested_checks = json.load(f)
-        except:
+        except Exception:
             suggested_checks = []
     return suggested_checks
+
+
+def _restore_accepted_checks():
+    """Re-add previously accepted Jira suggestions to AVAILABLE_CHECKS.
+
+    Called once at import time so accepted checks survive server restarts.
+    """
+    checks = load_suggested_checks()
+    restored = 0
+    for sc in checks:
+        if sc.get('status') != 'accepted':
+            continue
+        name = sc.get('name', '')
+        if not name or name in AVAILABLE_CHECKS:
+            continue
+        AVAILABLE_CHECKS[name] = {
+            'name': name.replace('_', ' ').title(),
+            'description': sc.get('description', ''),
+            'category': sc.get('category', 'Custom'),
+            'default': True,
+            'jira': sc.get('jira_key', ''),
+            'custom': True,
+        }
+        restored += 1
+    if restored:
+        print(f"  [Knowledge] Restored {restored} accepted Jira check(s) into AVAILABLE_CHECKS")
+
+
+_restore_accepted_checks()
 
 
 def save_suggested_checks():
@@ -1571,6 +1600,31 @@ def api_jira_accept_check():
             'description': description, 'category': category,
             'default': True, 'jira': jira_key, 'custom': True
         }
+
+        # Also write into the dynamic knowledge base so the RCA pattern
+        # engine matches this issue on subsequent runs.
+        try:
+            from healthchecks.knowledge_base import save_known_issue, pattern_exists
+            keywords = [w for w in check_name.replace('_', ' ').lower().split() if len(w) > 2]
+            if not pattern_exists(keywords):
+                kb_key = f"jira-{check_name}"
+                save_known_issue(kb_key, {
+                    'pattern': keywords,
+                    'jira': [jira_key] if jira_key else [],
+                    'title': check_name.replace('_', ' ').title(),
+                    'description': description,
+                    'root_cause': [f'Related to {jira_key}'] if jira_key else [],
+                    'suggestions': [f'See {jira_key} for details'] if jira_key else [],
+                    'verify_cmd': '',
+                    'source': 'jira-scan',
+                    'confidence': 0.7,
+                    'created': datetime.now().isoformat(),
+                    'last_matched': None,
+                    'investigation_commands': [],
+                })
+        except Exception:
+            pass
+
         return jsonify({'success': True, 'message': f'Check "{check_name}" added successfully', 'check': check_record})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})

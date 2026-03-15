@@ -156,19 +156,24 @@ def discover_pattern(data, issue_key, issue):
     """
     Automatically discover and record a pattern from a recurring issue.
     This is the core of the "learns from every run" feature.
+
+    When confidence reaches the promotion threshold (3), the pattern is
+    also written into the dynamic knowledge base so the RCA pattern engine
+    picks it up on subsequent runs.
     """
+    now = datetime.now().isoformat()
+
     if issue_key in data["patterns"]:
-        # Pattern already discovered, increment confidence
         data["patterns"][issue_key]["confidence"] += 1
-        data["patterns"][issue_key]["last_matched"] = datetime.now().isoformat()
+        data["patterns"][issue_key]["last_matched"] = now
+        _maybe_promote_to_knowledge_base(issue_key, data["patterns"][issue_key])
         return
     
-    # Create new pattern
     keywords = extract_keywords(issue)
     
     data["patterns"][issue_key] = {
-        "discovered": datetime.now().isoformat(),
-        "last_matched": datetime.now().isoformat(),
+        "discovered": now,
+        "last_matched": now,
         "confidence": 1,
         "keywords": keywords,
         "type": issue.get("type", "unknown"),
@@ -181,7 +186,50 @@ def discover_pattern(data, issue_key, issue):
         }
     }
     
-    print(f"  🧠 [Learning] Discovered new pattern: {issue_key}")
+    print(f"  [Learning] Discovered new pattern: {issue_key}")
+
+
+PROMOTION_THRESHOLD = 3
+
+
+def _maybe_promote_to_knowledge_base(issue_key, pattern):
+    """Promote a learned pattern into knowledge/known_issues.json once it
+    has been seen enough times. Skips if a similar pattern already exists."""
+    if pattern.get("confidence", 0) < PROMOTION_THRESHOLD:
+        return
+    if pattern.get("promoted"):
+        return
+
+    try:
+        from healthchecks.knowledge_base import save_known_issue, pattern_exists
+
+        keywords = pattern.get("keywords", [])
+        if pattern_exists(keywords):
+            return
+
+        kb_key = f"learned-{issue_key.replace(':', '-')}"
+        entry = {
+            "pattern": keywords,
+            "jira": [],
+            "title": pattern.get("description", f"Learned: {issue_key}"),
+            "description": pattern.get("description", ""),
+            "root_cause": [f"Recurring issue detected {pattern['confidence']} times"],
+            "suggestions": [
+                f"This issue recurs frequently - investigate root cause",
+                f"First seen: {pattern.get('discovered', 'unknown')}",
+            ],
+            "verify_cmd": "",
+            "source": "learned",
+            "confidence": min(pattern["confidence"] / 10.0, 1.0),
+            "created": pattern.get("discovered", datetime.now().isoformat()),
+            "last_matched": pattern.get("last_matched"),
+            "investigation_commands": [],
+        }
+        save_known_issue(kb_key, entry)
+        pattern["promoted"] = True
+        print(f"  [Learning] Promoted pattern to knowledge base: {kb_key}")
+    except Exception as exc:
+        print(f"  [Learning] Failed to promote pattern: {exc}")
 
 
 def get_learned_patterns():

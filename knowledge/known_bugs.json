@@ -1,0 +1,295 @@
+{
+  "CNV-66551": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [
+      "CNV 4.17.0"
+    ],
+    "affects": [
+      "CNV 4.16"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-71448": {
+    "status": "In Progress",
+    "resolution": null,
+    "fix_versions": [],
+    "affects": [
+      "CNV 4.17",
+      "CNV 4.18"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-30274": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [
+      "CNV 4.15.0"
+    ],
+    "affects": [
+      "CNV 4.14"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-68292": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [
+      "CNV 4.17.1"
+    ],
+    "affects": [
+      "CNV 4.17.0"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-70607": {
+    "status": "In Progress",
+    "resolution": null,
+    "fix_versions": [],
+    "affects": [
+      "CNV 4.17"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-74568": {
+    "status": "Open",
+    "resolution": null,
+    "fix_versions": [],
+    "affects": [
+      "CNV 4.18"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-71962": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [
+      "CNV 4.17.2"
+    ],
+    "affects": [
+      "CNV 4.17"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-74856": {
+    "status": "Open",
+    "resolution": null,
+    "fix_versions": [],
+    "affects": [
+      "CNV 4.18"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-76280": {
+    "status": "Open",
+    "resolution": null,
+    "fix_versions": [],
+    "affects": [
+      "CNV 4.18"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-74866": {
+    "status": "In Progress",
+    "resolution": null,
+    "fix_versions": [],
+    "affects": [
+      "CNV 4.18"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-69281": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [
+      "CNV 4.17.0"
+    ],
+    "affects": [
+      "CNV 4.16"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-45516": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [
+      "CNV 4.16.0"
+    ],
+    "affects": [
+      "CNV 4.15"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-52369": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [
+      "CNV 4.16.1"
+    ],
+    "affects": [
+      "CNV 4.16.0"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-74930": {
+    "status": "Open",
+    "resolution": null,
+    "fix_versions": [],
+    "affects": [
+      "CNV 4.18"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-20450": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [
+      "CNV 4.14.0"
+    ],
+    "affects": [
+      "CNV 4.13"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-75962": {
+    "status": "In Progress",
+    "resolution": null,
+    "fix_versions": [],
+    "affects": [
+      "CNV 4.18"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-63538": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [
+      "CNV 4.16.0"
+    ],
+    "affects": [
+      "CNV 4.15"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "CNV-70889": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [
+      "CNV 4.17.0"
+    ],
+    "affects": [
+      "CNV 4.16"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "OCPBUGS-48789": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [
+      "OCP 4.17.0"
+    ],
+    "affects": [
+      "OCP 4.16"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "OCPBUGS-74962": {
+    "status": "Open",
+    "resolution": null,
+    "fix_versions": [],
+    "affects": [
+      "OCP 4.18"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "OCPBUGS-70140": {
+    "status": "In Progress",
+    "resolution": null,
+    "fix_versions": [],
+    "affects": [
+      "OCP 4.17"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "OCPBUGS-69390": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [
+      "OCP 4.17.1"
+    ],
+    "affects": [
+      "OCP 4.17.0"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "OCPBUGS-47041": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [
+      "OCP 4.16.0"
+    ],
+    "affects": [
+      "OCP 4.15"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "OCPBUGS-38553": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [
+      "OCP 4.15.0"
+    ],
+    "affects": [
+      "OCP 4.14"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "OCPBUGS-41786": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [
+      "OCP 4.16.0"
+    ],
+    "affects": [
+      "OCP 4.15"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  },
+  "OCPBUGS-42135": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [
+      "OCP 4.16.0"
+    ],
+    "affects": [
+      "OCP 4.15"
+    ],
+    "source": "built-in",
+    "last_updated": "2026-03-15T21:50:38.703368"
+  }
+}

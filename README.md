@@ -22,7 +22,7 @@ CNV HealthCrew AI connects to your OpenShift cluster via SSH and runs **15+ heal
 **Key capabilities:**
 - **Health Checks** -- Nodes, operators, pods, etcd, KubeVirt/CNV, VMs, migrations, storage (ODF/CSI), network, certificates, alerts
 - **Web Dashboard** -- Jenkins-like UI to configure, run, schedule, and review health checks
-- **AI Root Cause Analysis** -- Matches failures against Jira bugs, team emails, and web docs
+- **AI Root Cause Analysis** -- Pattern matching + Gemini AI for deep failure correlation and remediation
 - **Pattern Learning** -- Discovers patterns, matches known Jira bugs, suggests new checks
 - **Reports & Notifications** -- Professional HTML reports with email delivery
 
@@ -105,7 +105,8 @@ Edit `~/.config/cnv-healthcrew/config.env` (installed) or `.env` (dev mode):
 | `KUBECONFIG_REMOTE` | Yes | KUBECONFIG path on the remote host |
 | `EMAIL_TO` | No | Email recipient for reports |
 | `SMTP_SERVER` | No | SMTP server for email delivery |
-| `GOOGLE_API_KEY` | No | Google Gemini API key for AI-powered RCA (planned, not yet integrated) |
+| `GEMINI_API_KEY` | No | Google Gemini API key for AI-powered RCA (`--ai-rca`) |
+| `GEMINI_MODEL` | No | Gemini model name (default: `gemini-2.5-pro`) |
 | `FLASK_HOST` | No | Dashboard bind address (default: `0.0.0.0`) |
 | `FLASK_PORT` | No | Dashboard port (default: `5000`) |
 
@@ -119,10 +120,16 @@ Run health checks directly without the dashboard:
 # Basic health check
 python healthchecks/hybrid_health_check.py
 
-# With AI root cause analysis
+# Gemini AI RCA (pattern matching runs first, then Gemini builds on the findings)
+python healthchecks/hybrid_health_check.py --ai-rca
+
+# Rule-based RCA with deep investigation + Gemini AI
+python healthchecks/hybrid_health_check.py --ai --ai-rca
+
+# Rule-based RCA only (pattern matching + deep investigation, no AI)
 python healthchecks/hybrid_health_check.py --ai
 
-# Bug matching only (faster than full AI)
+# Bug matching only (faster, no deep investigation)
 python healthchecks/hybrid_health_check.py --rca-bugs
 
 # Search Jira for related bugs during RCA
@@ -186,7 +193,8 @@ ocp-health-crew/
 │   └── cnv_scenarios.py                #   CNV scenario definitions & variables for the dashboard
 │
 ├── healthchecks/                       # Health check engines
-│   ├── hybrid_health_check.py          #   Core engine: SSH, reports, AI RCA, auto oc-login
+│   ├── hybrid_health_check.py          #   Core engine: SSH, reports, rule-based RCA, auto oc-login
+│   ├── ai_analysis.py                  #   Gemini AI RCA: API call, prompt builder, markdown-to-HTML
 │   ├── cnv_scenarios.py                #   CNV scenario runner: SSH + kube-burner workloads
 │   ├── cnv_report.py                   #   CNV report generator: parses output, builds HTML
 │   ├── simple_health_check.py          #   Minimal SSH health check (no AI, no web)
@@ -202,7 +210,8 @@ ocp-health-crew/
 │   └── migrate_json_to_db.py           #   One-time JSON → SQLite migration
 │
 ├── docs/                               # Documentation
-│   └── DESIGN.md                       #   Architecture & design document
+│   ├── ARCHITECTURE.md                 #   Technical architecture & data flows
+│   └── DESIGN.md                       #   Feature descriptions & roadmap
 │
 ├── legacy/                             # Deprecated code
 │   └── web_dashboard.py                #   Old standalone Flask app (replaced by app/)

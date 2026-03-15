@@ -90,6 +90,8 @@ class Config:
     # AI Configuration
     OLLAMA_MODEL = "ollama/llama3.2:3b"
     OLLAMA_URL = "http://localhost:11434"
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
+    GEMINI_AI_RCA_ENABLED = os.getenv("GEMINI_AI_RCA", "true").lower() in ("true", "1", "yes")
     
     # Jira Configuration
     JIRA_PROJECTS = ["CNV", "OCPBUGS", "ODF"]

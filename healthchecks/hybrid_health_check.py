@@ -619,6 +619,7 @@ Full HTML report attached — open in a browser for the interactive view with RC
 
 # Parse arguments
 USE_AI = "--ai" in sys.argv  # Full RCA with deep investigation
+AI_RCA = "--ai-rca" in sys.argv  # Gemini-powered AI root cause analysis
 RCA_BUGS = "--rca-bugs" in sys.argv  # Bug matching only (no deep investigation)
 RCA_JIRA = "--rca-jira" in sys.argv  # Search Jira for RCA
 RCA_EMAIL = "--rca-email" in sys.argv  # Search email for RCA
@@ -1568,8 +1569,13 @@ def investigate_issue(issue_type, context, ssh_command_func):
     Run investigation commands for a specific issue type.
     Returns list of investigation results.
     """
+    try:
+        from healthchecks.knowledge_base import load_investigation_commands
+    except ImportError:
+        from knowledge_base import load_investigation_commands
+    inv_commands = load_investigation_commands()
     results = []
-    commands = INVESTIGATION_COMMANDS.get(issue_type, [])
+    commands = inv_commands.get(issue_type, INVESTIGATION_COMMANDS.get(issue_type, []))
     
     for cmd_info in commands:
         cmd_template = cmd_info["cmd"]
@@ -1793,39 +1799,17 @@ def check_jira_bugs(jira_keys, cluster_version):
 
 def get_known_bug_info(jira_key, cluster_version):
     """
-    Get known bug information. This includes hardcoded data for common bugs
-    that can be updated from Jira periodically.
+    Get known bug information from the dynamic knowledge base.
+    Falls back to the hardcoded dict for backward compatibility.
     """
-    # Known bug database with status info (can be refreshed from Jira)
-    KNOWN_BUGS = {
-        # CNV bugs
-        "CNV-66551": {"status": "Closed", "resolution": "Done", "fix_versions": ["CNV 4.17.0"], "affects": ["CNV 4.16"]},
-        "CNV-71448": {"status": "In Progress", "resolution": None, "fix_versions": [], "affects": ["CNV 4.17", "CNV 4.18"]},
-        "CNV-30274": {"status": "Closed", "resolution": "Done", "fix_versions": ["CNV 4.15.0"], "affects": ["CNV 4.14"]},
-        "CNV-68292": {"status": "Closed", "resolution": "Done", "fix_versions": ["CNV 4.17.1"], "affects": ["CNV 4.17.0"]},
-        "CNV-70607": {"status": "In Progress", "resolution": None, "fix_versions": [], "affects": ["CNV 4.17"]},
-        "CNV-74568": {"status": "Open", "resolution": None, "fix_versions": [], "affects": ["CNV 4.18"]},
-        "CNV-71962": {"status": "Closed", "resolution": "Done", "fix_versions": ["CNV 4.17.2"], "affects": ["CNV 4.17"]},
-        "CNV-74856": {"status": "Open", "resolution": None, "fix_versions": [], "affects": ["CNV 4.18"]},
-        "CNV-76280": {"status": "Open", "resolution": None, "fix_versions": [], "affects": ["CNV 4.18"]},
-        "CNV-74866": {"status": "In Progress", "resolution": None, "fix_versions": [], "affects": ["CNV 4.18"]},
-        "CNV-69281": {"status": "Closed", "resolution": "Done", "fix_versions": ["CNV 4.17.0"], "affects": ["CNV 4.16"]},
-        "CNV-45516": {"status": "Closed", "resolution": "Done", "fix_versions": ["CNV 4.16.0"], "affects": ["CNV 4.15"]},
-        "CNV-52369": {"status": "Closed", "resolution": "Done", "fix_versions": ["CNV 4.16.1"], "affects": ["CNV 4.16.0"]},
-        "CNV-74930": {"status": "Open", "resolution": None, "fix_versions": [], "affects": ["CNV 4.18"]},
-        "CNV-20450": {"status": "Closed", "resolution": "Done", "fix_versions": ["CNV 4.14.0"], "affects": ["CNV 4.13"]},
-        "CNV-75962": {"status": "In Progress", "resolution": None, "fix_versions": [], "affects": ["CNV 4.18"]},
-        "CNV-63538": {"status": "Closed", "resolution": "Done", "fix_versions": ["CNV 4.16.0"], "affects": ["CNV 4.15"]},
-        "CNV-70889": {"status": "Closed", "resolution": "Done", "fix_versions": ["CNV 4.17.0"], "affects": ["CNV 4.16"]},
-        # OCP bugs
-        "OCPBUGS-48789": {"status": "Closed", "resolution": "Done", "fix_versions": ["OCP 4.17.0"], "affects": ["OCP 4.16"]},
-        "OCPBUGS-74962": {"status": "Open", "resolution": None, "fix_versions": [], "affects": ["OCP 4.18"]},
-        "OCPBUGS-70140": {"status": "In Progress", "resolution": None, "fix_versions": [], "affects": ["OCP 4.17"]},
-        "OCPBUGS-69390": {"status": "Closed", "resolution": "Done", "fix_versions": ["OCP 4.17.1"], "affects": ["OCP 4.17.0"]},
-    }
+    try:
+        from healthchecks.knowledge_base import load_known_bugs
+    except ImportError:
+        from knowledge_base import load_known_bugs
+    known_bugs = load_known_bugs()
     
-    if jira_key in KNOWN_BUGS:
-        bug = KNOWN_BUGS[jira_key]
+    if jira_key in known_bugs:
+        bug = known_bugs[jira_key]
         assessment, detail = assess_bug_status(bug, cluster_version, jira_key)
         return {
             'status': bug['status'],
@@ -2102,24 +2086,36 @@ def analyze_failures(data):
             "raw_output": raw_out
         })
     
+    # Load patterns from the dynamic knowledge base (falls back to hardcoded on first run)
+    try:
+        from healthchecks.knowledge_base import load_known_issues, update_last_matched
+    except ImportError:
+        from knowledge_base import load_known_issues, update_last_matched
+    known_issues = load_known_issues()
+
     # Match failures to known issues (prefer specific matches over generic)
     for failure in failures:
         matched_issues = []
         failure_text = f"{failure['type']} {failure['name']} {failure['status']} {str(failure['details'])}".lower()
         
-        for issue_key, issue in KNOWN_ISSUES.items():
+        for issue_key, issue in known_issues.items():
             match_count = 0
             for pattern in issue["pattern"]:
                 if pattern.lower() in failure_text:
                     match_count += 1
             if match_count > 0:
-                matched_issues.append((match_count, len(issue.get("jira", [])), issue))
+                matched_issues.append((match_count, len(issue.get("jira", [])), issue_key, issue))
         
         if matched_issues:
             # Sort: most pattern matches first, then most Jira refs (= most specific)
             matched_issues.sort(key=lambda x: (-x[0], -x[1]))
-            best_match = matched_issues[0][2]
-            all_matches = [m[2] for m in matched_issues]
+            best_key = matched_issues[0][2]
+            best_match = matched_issues[0][3]
+            all_matches = [m[3] for m in matched_issues]
+            try:
+                update_last_matched(best_key)
+            except Exception:
+                pass
             analysis.append({
                 "failure": failure,
                 "matched_issue": best_match,
@@ -3370,13 +3366,14 @@ def generate_error_report_html(ssh_error):
 </html>"""
 
 
-def generate_html_report(data, include_rca=False, rca_level='none'):
+def generate_html_report(data, include_rca=False, rca_level='none', ai_rca=False):
     """Generate Grafana-style HTML dashboard report
     
     rca_level can be:
     - 'none': No RCA, just health checks
     - 'bugs': Match failures to known bugs (no deep investigation)
     - 'full': Full RCA with deep investigation
+    ai_rca: If True, run Gemini-powered AI analysis on the collected data
     """
     # Handle legacy include_rca parameter
     if include_rca and rca_level == 'none':
@@ -3384,39 +3381,63 @@ def generate_html_report(data, include_rca=False, rca_level='none'):
     
     issues = has_issues(data)
     
-    # Generate RCA if requested and there are issues
+    # Pattern matching runs whenever RCA or AI-RCA is requested.
+    # It's fast and free -- Gemini builds on top of its findings.
     rca_html = ""
     email_rca_data = {}
-    
-    if rca_level != 'none' and issues:
-        print(f"  🔬 Starting Root Cause Analysis...", flush=True)
-        
-        # Search Jira if enabled
-        if RCA_JIRA:
-            print(f"     → Searching Jira for related bugs...", flush=True)
-        
+    analysis = None
+    need_patterns = (rca_level != 'none' or ai_rca) and issues
+
+    if need_patterns:
+        print(f"  🔬 Running pattern analysis...", flush=True)
         print(f"     → Matching failures to known issues database...", flush=True)
         analysis = analyze_failures(data)
         print(f"     → Found {len(analysis)} issue(s) to analyze", flush=True)
-        
-        # Search emails if enabled
+
+        if RCA_JIRA:
+            print(f"     → Searching Jira for related bugs...", flush=True)
+
         if RCA_EMAIL:
             print(f"     → Searching emails for related discussions...", flush=True)
             email_rca_data = search_emails_for_issues(analysis)
-            # Add email data to analysis
             for item in analysis:
                 if isinstance(item, dict):
                     item['email_searches'] = email_rca_data.get('keywords', [])
-        
+
         if rca_level == 'full':
-            # Full RCA includes deep investigation
             print(f"     → Running deep investigation commands...", flush=True)
             analysis = run_deep_investigation(analysis, ssh_command)
             print(f"     → Deep investigation complete", flush=True)
-        
-        print(f"     → Generating RCA HTML section...", flush=True)
-        rca_html = generate_rca_html(analysis, data.get("version", ""), show_investigation=(rca_level == 'full'), email_data=email_rca_data)
-        print(f"  ✅ RCA analysis complete", flush=True)
+
+        if rca_level != 'none':
+            print(f"     → Generating RCA HTML section...", flush=True)
+            rca_html = generate_rca_html(analysis, data.get("version", ""), show_investigation=(rca_level == 'full'), email_data=email_rca_data)
+            print(f"  ✅ Rule-based RCA complete", flush=True)
+
+    # Gemini AI RCA -- always receives the pattern findings
+    ai_rca_html = ""
+    if ai_rca and issues:
+        print(f"  🤖 Running Gemini AI analysis (building on {len(analysis or [])} pattern findings)...", flush=True)
+        try:
+            try:
+                from healthchecks.ai_analysis import analyze_with_gemini, generate_ai_rca_html, suggest_new_patterns
+            except ImportError:
+                from ai_analysis import analyze_with_gemini, generate_ai_rca_html, suggest_new_patterns
+            ai_markdown = analyze_with_gemini(data, rule_analysis=analysis)
+            if ai_markdown:
+                ai_rca_html = generate_ai_rca_html(ai_markdown)
+                print(f"  ✅ AI analysis complete", flush=True)
+                # Gemini feedback loop: suggest new patterns for the knowledge base
+                try:
+                    new_patterns = suggest_new_patterns(data, ai_markdown, rule_analysis=analysis)
+                    if new_patterns:
+                        print(f"  🧠 Gemini suggested {len(new_patterns)} new pattern(s) for the knowledge base", flush=True)
+                except Exception as exc:
+                    print(f"  ⚠️  Pattern suggestion step failed (non-fatal): {exc}", flush=True)
+            else:
+                print(f"  ⚠️  AI analysis skipped (no API key or API error)", flush=True)
+        except Exception as e:
+            print(f"  ⚠️  AI analysis failed: {e}", flush=True)
     
     status_color = "#FF9830" if issues else "#73BF69"
     status_text = "ATTENTION NEEDED" if issues else "ALL SYSTEMS HEALTHY"
@@ -3972,6 +3993,8 @@ oc get vmi -A -o wide --no-headers | grep &lt;cordoned-node&gt;</code>
 
     {rca_html}
 
+    {ai_rca_html}
+
     <div class="dash-footer">
         <div class="dash-footer-status">Cluster Status: {status_text}</div>
         <div>Generated by CNV HealthCrew AI | Based on real CNV/OCP Jira bugs</div>
@@ -4198,6 +4221,7 @@ def main():
     if LAB_NAME:
         print(f"     Lab: {LAB_NAME}")
     print(f"     RCA Level: {'Full' if USE_AI else 'Bug Match' if RCA_BUGS else 'None'}")
+    print(f"     AI RCA: {'Yes' if AI_RCA else 'No'}")
     print(f"     Jira RCA: {'Yes' if RCA_JIRA else 'No'}")
     print(f"     Email RCA: {'Yes' if RCA_EMAIL else 'No'}")
     print(f"     Send Email: {'Yes' if SEND_EMAIL else 'No'}")
@@ -4237,7 +4261,7 @@ def main():
             print(f"     RCA Level: {rca_level}", flush=True)
         
         # Generate and save HTML report with appropriate RCA level
-        html = generate_html_report(data, rca_level=rca_level)
+        html = generate_html_report(data, rca_level=rca_level, ai_rca=AI_RCA)
         timestamp = data["timestamp"].strftime("%Y-%m-%d_%H-%M-%S")
         
         # Ensure reports directory exists
@@ -4311,6 +4335,10 @@ def main():
                 print(f"\n  🐛 Bug matching included in report (use --ai for full investigation)")
             else:
                 print(f"\n  💡 Tip: Run with --rca-bugs for bug matching or --ai for full RCA")
+            if AI_RCA:
+                print(f"\n  🤖 AI Root Cause Analysis included in report")
+            elif not AI_RCA:
+                print(f"  💡 Tip: Run with --ai-rca for Gemini-powered AI analysis")
         
         print()
         
