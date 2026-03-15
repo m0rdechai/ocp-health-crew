@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <em>Self-Evolving AI that Learns from Bugs, Emails & the Web</em>
+  <em>Health Monitoring & Root Cause Analysis for OpenShift + CNV</em>
 </p>
 
 <p align="center">
@@ -32,15 +32,15 @@
 <tr>
 <td align="left" width="50%">
 
-### Self-Evolving AI
+### Intelligent RCA
 
-**The system learns from multiple sources:**
+**Root cause analysis with multiple sources:**
 
-- **Jira Bugs** - Discovers new tests from bug reports
-- **Email** - Learns from team discussions & alerts
-- **Web** - Searches docs, forums & knowledge bases
-- **Patterns** - Recognizes recurring issues
-- **Never stops** - Gets smarter with every run
+- **Jira Bugs** - Matches failures against known bugs
+- **Known Issues** - 18 pattern types with remediation steps
+- **Investigation** - 13 targeted command sets per issue type
+- **Patterns** - Recognizes recurring issues across runs
+- **Extensible** - LLM integration planned for deeper analysis
 
 </td>
 <td align="left" width="50%">
@@ -218,7 +218,7 @@ Users can define their own health checks with:
 <tr>
 <td align="center" colspan="4">
 <h3>AI / RCA Layer</h3>
-<sub>Jira bug matching &bull; Email search &bull; Web search &bull; Gemini LLM deep investigation</sub>
+<sub>Jira bug matching &bull; Pattern-based RCA &bull; Investigation commands &bull; LLM integration (planned)</sub>
 </td>
 </tr>
 <tr><td align="center" colspan="4">&darr;</td></tr>
@@ -391,7 +391,9 @@ ocp-health-crew/
 
 ---
 
-## Self-Evolving AI Details
+## AI Integration Details (Planned)
+
+> **Note:** The features described below are partially implemented. The RCA engine currently uses pattern matching against known issues, not LLM-based analysis. Jira integration works with a static fallback. Email and web search are stubs. LLM integration (Ollama/Gemini) is planned.
 
 ### Learning Sources
 
@@ -508,7 +510,7 @@ Runs kube-burner performance workloads against the cluster via `cnv-scenarios/ru
 
 ### 4. AI Agent System (`healthchecks/crewai_agents.py`)
 
-CrewAI-based multi-agent system (experimental).
+CrewAI-based multi-agent system (experimental, **CLI only** -- not integrated into the dashboard).
 
 | Agent | Focus |
 |:------|:------|
@@ -532,7 +534,7 @@ Uses local LLM (Ollama llama3.2:3b) for analysis.
 | `KUBECONFIG_REMOTE` | Yes | KUBECONFIG path on the remote host |
 | `EMAIL_TO` | No | Email recipient for reports |
 | `SMTP_SERVER` | No | SMTP server for email delivery |
-| `GOOGLE_API_KEY` | No | Gemini API key for AI-powered RCA |
+| `GOOGLE_API_KEY` | No | Gemini API key for AI-powered RCA (planned, not yet integrated) |
 | `FLASK_HOST` | No | Dashboard bind address (default: `0.0.0.0`) |
 | `FLASK_PORT` | No | Dashboard port (default: `5000`) |
 
@@ -605,7 +607,7 @@ Init (5%) → Connect (15%) → Collect Data (50%) → Analyze (75%) → Report 
 ---
 
 <p align="center">
-  <strong>AI-Powered &bull; Performance Focused &bull; Self-Evolving</strong>
+  <strong>AI-Powered &bull; Performance Focused &bull; Pattern Learning</strong>
 </p>
 
 <p align="center">

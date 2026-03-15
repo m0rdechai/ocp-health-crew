@@ -547,7 +547,7 @@
             
             <div class="feature-grid">
                 <div class="feature-card" style="background:linear-gradient(135deg,#4527a0,#311b92);color:white;">
-                    <h4 style="color:white;">🧠 Self-Evolving AI</h4>
+                    <h4 style="color:white;">🧠 Pattern-Based RCA</h4>
                     <p><strong>The system learns from multiple sources:</strong></p>
                     <ul>
                         <li>🎫 <strong>Jira Bugs</strong> - Discovers new tests from bug reports</li>
@@ -597,7 +597,7 @@
                 </tr>
                 <tr><th colspan="5" style="background:linear-gradient(135deg,#0277bd,#0288d1);color:white;text-align:center;font-size:14px;letter-spacing:1px;">🤖 AI LAYER (Optional)</th></tr>
                 <tr>
-                    <td style="text-align:center;" colspan="2"><span style="font-size:20px;">🧠</span> <strong>CrewAI + Llama 3.2</strong><br><span style="color:#6b7280;font-size:12px;">Deep investigation</span></td>
+                    <td style="text-align:center;" colspan="2"><span style="font-size:20px;">🧠</span> <strong>Pattern-Based RCA</strong><br><span style="color:#6b7280;font-size:12px;">Known issue matching</span></td>
                     <td style="text-align:center;"><span style="font-size:20px;">🎫</span> <strong>Jira MCP</strong><br><span style="color:#6b7280;font-size:12px;">Bug correlation</span></td>
                     <td style="text-align:center;"><span style="font-size:20px;">📧</span> <strong>Gmail MCP</strong><br><span style="color:#6b7280;font-size:12px;">Email search</span></td>
                     <td style="text-align:center;"><span style="font-size:20px;">🌐</span> <strong>Web Search</strong><br><span style="color:#6b7280;font-size:12px;">Documentation</span></td>
@@ -630,7 +630,7 @@
                 </tr>
                 <tr>
                     <td><strong>AI/ML</strong></td>
-                    <td>CrewAI, Ollama (Llama 3.2)</td>
+                    <td>Pattern matching, Ollama (planned)</td>
                     <td>Root cause analysis, Jira bug correlation</td>
                 </tr>
                 <tr>
@@ -685,9 +685,9 @@
                     <td>Historical run data</td>
                 </tr>
                 <tr>
-                    <td><strong>🔬 Deep RCA</strong></td>
-                    <td>CrewAI + Llama 3.2 AI performs deep investigation with verification commands</td>
-                    <td>Live cluster data + all sources</td>
+                    <td><strong>🔬 Full RCA</strong></td>
+                    <td>Pattern matching + targeted investigation commands per issue type</td>
+                    <td>Live cluster data + Jira bug database</td>
                 </tr>
             </table>
             
@@ -1021,7 +1021,7 @@ http://localhost:5000
                 </tr>
                 <tr>
                     <td><strong>🔍 Full RCA</strong></td>
-                    <td>Deep AI-powered investigation using CrewAI + Llama 3.2. Runs verification commands, analyzes logs, suggests specific fixes.</td>
+                    <td>Runs targeted investigation commands per issue type, matches against known Jira bugs, analyzes logs, suggests specific fixes.</td>
                     <td>🐢 Slower (10-30s/issue)</td>
                 </tr>
             </table>
@@ -1441,7 +1441,7 @@ http://localhost:5000
             <pre><code>ocp-health-crew/
 ├── run.py                       # Flask application entry point
 ├── hybrid_health_check.py       # Main health check engine
-├── main.py                      # CrewAI agents for deep RCA
+├── crewai_agents.py             # CrewAI agents (standalone CLI only)
 │
 ├── app/                         # Flask application
 │   ├── __init__.py             # Application factory
@@ -1632,7 +1632,7 @@ http://localhost:5000
             <hr>
             
             <p style="text-align:center;color:var(--text-secondary);margin-top:40px;">
-                <strong>🧠 AI-Powered • ⚡ Performance Focused • 🔄 Self-Evolving</strong><br>
+                <strong>🧠 AI-Powered • ⚡ Performance Focused • 🔄 Pattern Learning</strong><br>
                 Built with ❤️ for Performance Engineers & SRE Teams
             </p>
             

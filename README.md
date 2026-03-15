@@ -23,7 +23,7 @@ CNV HealthCrew AI connects to your OpenShift cluster via SSH and runs **15+ heal
 - **Health Checks** -- Nodes, operators, pods, etcd, KubeVirt/CNV, VMs, migrations, storage (ODF/CSI), network, certificates, alerts
 - **Web Dashboard** -- Jenkins-like UI to configure, run, schedule, and review health checks
 - **AI Root Cause Analysis** -- Matches failures against Jira bugs, team emails, and web docs
-- **Self-Evolving** -- Learns from every run, discovers patterns, and suggests new checks from Jira bugs
+- **Pattern Learning** -- Discovers patterns, matches known Jira bugs, suggests new checks
 - **Reports & Notifications** -- Professional HTML reports with email delivery
 
 ---
@@ -105,7 +105,7 @@ Edit `~/.config/cnv-healthcrew/config.env` (installed) or `.env` (dev mode):
 | `KUBECONFIG_REMOTE` | Yes | KUBECONFIG path on the remote host |
 | `EMAIL_TO` | No | Email recipient for reports |
 | `SMTP_SERVER` | No | SMTP server for email delivery |
-| `GOOGLE_API_KEY` | No | Google Gemini API key for AI-powered RCA |
+| `GOOGLE_API_KEY` | No | Google Gemini API key for AI-powered RCA (planned, not yet integrated) |
 | `FLASK_HOST` | No | Dashboard bind address (default: `0.0.0.0`) |
 | `FLASK_PORT` | No | Dashboard port (default: `5000`) |
 
@@ -128,7 +128,7 @@ python healthchecks/hybrid_health_check.py --rca-bugs
 # Search Jira for related bugs during RCA
 python healthchecks/hybrid_health_check.py --rca-jira
 
-# Enable self-evolving AI (scan Jira for new test suggestions)
+# Scan Jira for new test suggestions
 python healthchecks/hybrid_health_check.py --check-jira
 
 # Send report via email
@@ -140,7 +140,7 @@ python healthchecks/hybrid_health_check.py --server my-other-host.example.com
 # Simple health check (no AI, no web dependencies)
 python healthchecks/simple_health_check.py
 
-# CrewAI multi-agent health check
+# CrewAI multi-agent health check (standalone CLI, not integrated into dashboard)
 python healthchecks/crewai_agents.py
 ```
 
