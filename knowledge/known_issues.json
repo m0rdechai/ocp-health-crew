@@ -24,10 +24,6 @@
       "Monitor with: oc adm top pods -n openshift-cnv -l kubevirt.io=virt-handler"
     ],
     "verify_cmd": "oc adm top pods -n openshift-cnv -l kubevirt.io=virt-handler --no-headers",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "virt-handler-memory",
     "investigation_commands": [
       {
@@ -35,7 +31,7 @@
         "desc": "virt-handler resource usage"
       },
       {
-        "cmd": "oc get pods -n openshift-cnv -l kubevirt.io=virt-handler -o jsonpath='{{range .items[*]}}{{.metadata.name}} {{.spec.nodeName}}{{\"\\n\"}}{{end}}' 2>&1",
+        "cmd": "oc get pods -n openshift-cnv -l kubevirt.io=virt-handler -o wide --no-headers 2>&1 | awk '{print $1, $7}' | head -20",
         "desc": "virt-handler pod locations"
       },
       {
@@ -50,7 +46,11 @@
         "cmd": "oc logs -n openshift-cnv $(oc get pods -n openshift-cnv -l kubevirt.io=virt-handler -o name | head -1) --tail=20 2>&1 | grep -i 'memory\\|oom\\|error' | head -10",
         "desc": "Memory-related logs"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "virt-handler-error": {
     "pattern": [
@@ -75,10 +75,6 @@
       "Force delete stuck pods if necessary: oc delete pod -n openshift-cnv <pod> --force"
     ],
     "verify_cmd": "oc get pods -n openshift-cnv -l kubevirt.io=virt-handler --no-headers",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "virt-handler-memory",
     "investigation_commands": [
       {
@@ -86,7 +82,7 @@
         "desc": "virt-handler resource usage"
       },
       {
-        "cmd": "oc get pods -n openshift-cnv -l kubevirt.io=virt-handler -o jsonpath='{{range .items[*]}}{{.metadata.name}} {{.spec.nodeName}}{{\"\\n\"}}{{end}}' 2>&1",
+        "cmd": "oc get pods -n openshift-cnv -l kubevirt.io=virt-handler -o wide --no-headers 2>&1 | awk '{print $1, $7}' | head -20",
         "desc": "virt-handler pod locations"
       },
       {
@@ -101,7 +97,11 @@
         "cmd": "oc logs -n openshift-cnv $(oc get pods -n openshift-cnv -l kubevirt.io=virt-handler -o name | head -1) --tail=20 2>&1 | grep -i 'memory\\|oom\\|error' | head -10",
         "desc": "Memory-related logs"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "noobaa-endpoint": {
     "pattern": [
@@ -124,10 +124,6 @@
       "Verify ODF operator health: oc get csv -n openshift-storage"
     ],
     "verify_cmd": "oc get pods -n openshift-storage -l noobaa-core=noobaa --no-headers",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "noobaa",
     "investigation_commands": [
       {
@@ -150,7 +146,11 @@
         "cmd": "oc logs {pod} -n openshift-storage --tail=30 2>&1 | head -20",
         "desc": "Pod logs"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "metal3-crashloop": {
     "pattern": [
@@ -173,10 +173,6 @@
       "Ensure at least one worker is available during servicing operations"
     ],
     "verify_cmd": "oc get pods -n openshift-machine-api -l app=metal3-image-customization --no-headers",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "metal3",
     "investigation_commands": [
       {
@@ -199,7 +195,11 @@
         "cmd": "oc get bmh -A 2>&1 | head -10",
         "desc": "BareMetalHost status"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "container-status-unknown": {
     "pattern": [
@@ -222,10 +222,6 @@
       "Verify node network connectivity"
     ],
     "verify_cmd": "oc get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded | grep -i unknown",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "pod-unknown",
     "investigation_commands": [
       {
@@ -244,7 +240,11 @@
         "cmd": "oc get events -n {ns} --field-selector involvedObject.name={pod} 2>&1 | tail -5",
         "desc": "Related events"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "volumesnapshot-not-ready": {
     "pattern": [
@@ -271,10 +271,6 @@
       "Verify VolumeSnapshotClass exists: oc get volumesnapshotclass"
     ],
     "verify_cmd": "oc get volumesnapshot -A --no-headers | grep -v true",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "volumesnapshot",
     "investigation_commands": [
       {
@@ -297,7 +293,11 @@
         "cmd": "oc get pvc -A 2>&1 | head -10",
         "desc": "PVC status"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "datavolume-stuck": {
     "pattern": [
@@ -323,19 +323,23 @@
       "Check PVC events: oc describe pvc <pvc-name> -n <ns>"
     ],
     "verify_cmd": "oc get dv -A --no-headers | grep -v Succeeded",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "csi",
     "investigation_commands": [
       {
-        "cmd": "oc get pods -A 2>&1 | grep csi",
-        "desc": "CSI pod status"
+        "cmd": "oc get pods -A --no-headers 2>&1 | grep -iE 'csi|ceph|storage' | grep -ivE '^openshift-storage.*Running.*[1-9]/' | head -10",
+        "desc": "Non-healthy storage/CSI pods"
       },
       {
-        "cmd": "oc logs {pod} -n {ns} --tail=30 2>&1 | grep -i 'error\\|fail' | head -15",
-        "desc": "CSI error logs"
+        "cmd": "oc get pod {pod} -n {ns} -o wide 2>&1",
+        "desc": "Specific CSI pod status"
+      },
+      {
+        "cmd": "oc describe pod {pod} -n {ns} 2>&1 | grep -A20 'Events:' | head -25",
+        "desc": "CSI pod events"
+      },
+      {
+        "cmd": "oc logs {pod} -n {ns} --previous --tail=40 2>&1 | tail -25",
+        "desc": "Previous logs of CSI pod"
       },
       {
         "cmd": "oc get csidrivers 2>&1",
@@ -345,7 +349,11 @@
         "cmd": "oc get sc 2>&1",
         "desc": "Storage classes"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "migration-failed": {
     "pattern": [
@@ -374,10 +382,6 @@
       "For storage migration, ensure same storage class capabilities"
     ],
     "verify_cmd": "oc get vmim -A --no-headers | grep -i failed",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "migration",
     "investigation_commands": [
       {
@@ -396,7 +400,11 @@
         "cmd": "oc logs -n openshift-cnv -l kubevirt.io=virt-handler --tail=30 2>&1 | grep -i migration | head -10",
         "desc": "Migration logs"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "stuck-migration": {
     "pattern": [
@@ -423,10 +431,6 @@
       "Check network bandwidth between nodes"
     ],
     "verify_cmd": "oc get vmim -A --no-headers | grep Running",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "migration",
     "investigation_commands": [
       {
@@ -445,7 +449,11 @@
         "cmd": "oc logs -n openshift-cnv -l kubevirt.io=virt-handler --tail=30 2>&1 | grep -i migration | head -10",
         "desc": "Migration logs"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "cordoned-node-vms": {
     "pattern": [
@@ -467,10 +475,6 @@
       "Drain node properly: oc adm drain <node> --ignore-daemonsets --delete-emptydir-data"
     ],
     "verify_cmd": "oc get nodes | grep SchedulingDisabled && oc get vmi -A -o wide",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "node",
     "investigation_commands": [
       {
@@ -489,7 +493,11 @@
         "cmd": "oc get events --field-selector involvedObject.name={name} --sort-by='.lastTimestamp' 2>&1 | tail -10",
         "desc": "Node events"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "etcd-unhealthy": {
     "pattern": [
@@ -514,10 +522,6 @@
       "Consider defragmentation if DB size is large"
     ],
     "verify_cmd": "oc get pods -n openshift-etcd -l app=etcd --no-headers",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "etcd",
     "investigation_commands": [
       {
@@ -536,7 +540,11 @@
         "cmd": "oc rsh -n openshift-etcd $(oc get pods -n openshift-etcd -l app=etcd -o name | head -1) etcdctl endpoint health 2>&1",
         "desc": "etcd health check"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "oom-events": {
     "pattern": [
@@ -561,10 +569,6 @@
       "Monitor memory usage: oc adm top pods -n <namespace>"
     ],
     "verify_cmd": "oc get events -A --field-selector reason=OOMKilled --no-headers",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "oom",
     "investigation_commands": [
       {
@@ -579,7 +583,11 @@
         "cmd": "oc adm top pods -n {ns} --no-headers 2>&1 | head -10",
         "desc": "Namespace resource usage"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "csi-issues": {
     "pattern": [
@@ -604,19 +612,23 @@
       "Check if storage backend supports required features"
     ],
     "verify_cmd": "oc get pods -A --no-headers | grep csi | grep -v Running",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "csi",
     "investigation_commands": [
       {
-        "cmd": "oc get pods -A 2>&1 | grep csi",
-        "desc": "CSI pod status"
+        "cmd": "oc get pods -A --no-headers 2>&1 | grep -iE 'csi|ceph|storage' | grep -ivE '^openshift-storage.*Running.*[1-9]/' | head -10",
+        "desc": "Non-healthy storage/CSI pods"
       },
       {
-        "cmd": "oc logs {pod} -n {ns} --tail=30 2>&1 | grep -i 'error\\|fail' | head -15",
-        "desc": "CSI error logs"
+        "cmd": "oc get pod {pod} -n {ns} -o wide 2>&1",
+        "desc": "Specific CSI pod status"
+      },
+      {
+        "cmd": "oc describe pod {pod} -n {ns} 2>&1 | grep -A20 'Events:' | head -25",
+        "desc": "CSI pod events"
+      },
+      {
+        "cmd": "oc logs {pod} -n {ns} --previous --tail=40 2>&1 | tail -25",
+        "desc": "Previous logs of CSI pod"
       },
       {
         "cmd": "oc get csidrivers 2>&1",
@@ -626,7 +638,11 @@
         "cmd": "oc get sc 2>&1",
         "desc": "Storage classes"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "mco-degraded": {
     "pattern": [
@@ -643,7 +659,7 @@
     "title": "Machine Config Operator Degraded",
     "description": "Machine Config Operator is degraded. MachineConfigPool workers may be failing to render or apply updated MachineConfigs.",
     "root_cause": [
-      "MachineConfigPool 'worker' is degraded \u2014 nodes failed to apply the desired MachineConfig (context deadline exceeded)",
+      "MachineConfigPool 'worker' is degraded - nodes failed to apply the desired MachineConfig (context deadline exceeded)",
       "Nodes stuck in NotReady or SchedulingDisabled after a failed config render or drain timeout",
       "Post-upgrade MC render failure due to incompatible custom MachineConfigs (OCPBUGS-47041)",
       "MCD drain timeout when pods have long terminationGracePeriod or PodDisruptionBudgets blocking eviction"
@@ -657,10 +673,6 @@
       "Force reboot stuck node: oc debug node/<node> -- chroot /host systemctl reboot"
     ],
     "verify_cmd": "oc get mcp && oc get co machine-config",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "operator-degraded",
     "investigation_commands": [
       {
@@ -703,7 +715,11 @@
         "cmd": "oc get csr 2>&1 | grep -i pending | head -5",
         "desc": "Pending CSRs"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "operator-degraded-generic": {
     "pattern": [
@@ -727,10 +743,6 @@
       "If post-upgrade, wait for reconciliation or check for pending CSRs"
     ],
     "verify_cmd": "oc get co --no-headers | grep -vE 'True.*False.*False'",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "operator-degraded",
     "investigation_commands": [
       {
@@ -773,7 +785,11 @@
         "cmd": "oc get csr 2>&1 | grep -i pending | head -5",
         "desc": "Pending CSRs"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "operator-unavailable": {
     "pattern": [
@@ -797,10 +813,6 @@
       "Review API server availability: oc get pods -n openshift-kube-apiserver"
     ],
     "verify_cmd": "oc get co --no-headers | grep -v 'True'",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "operator-unavailable",
     "investigation_commands": [
       {
@@ -835,7 +847,11 @@
         "cmd": "oc get nodes --no-headers 2>&1 | grep -v ' Ready ' | head -10",
         "desc": "Nodes not in Ready state"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "node-not-ready": {
     "pattern": [
@@ -861,10 +877,6 @@
       "If unrecoverable, drain and replace: oc adm drain <node-name> --ignore-daemonsets --delete-emptydir-data"
     ],
     "verify_cmd": "oc get nodes -o wide",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "node",
     "investigation_commands": [
       {
@@ -883,7 +895,11 @@
         "cmd": "oc get events --field-selector involvedObject.name={name} --sort-by='.lastTimestamp' 2>&1 | tail -10",
         "desc": "Node events"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   },
   "alerts-firing": {
     "pattern": [
@@ -894,20 +910,16 @@
     "title": "Cluster Alerts Firing",
     "description": "Active alerts indicate components that need attention. Critical alerts may require immediate action.",
     "root_cause": [
-      "Alerts are symptom indicators \u2014 the root cause depends on the specific alert",
+      "Alerts are symptom indicators - the root cause depends on the specific alert",
       "Common: resource exhaustion, component failures, certificate expiry, etcd issues"
     ],
     "suggestions": [
-      "View active alerts in console: Observe \u2192 Alerting \u2192 Alerts",
+      "View active alerts in console: Observe > Alerting > Alerts",
       "Check Prometheus: oc -n openshift-monitoring exec -c prometheus prometheus-k8s-0 -- promtool query instant http://localhost:9090 'ALERTS{alertstate=\"firing\"}'",
       "Silence non-critical alerts during maintenance windows",
       "Address critical alerts first, then warnings"
     ],
     "verify_cmd": "oc get pods -n openshift-monitoring",
-    "source": "built-in",
-    "confidence": 1.0,
-    "created": "2026-03-15T21:50:38.701355",
-    "last_matched": null,
     "inv_type": "alert",
     "investigation_commands": [
       {
@@ -926,6 +938,10 @@
         "cmd": "oc get events -A --sort-by='.lastTimestamp' 2>&1 | grep -i 'warning' | tail -15",
         "desc": "Recent warning events"
       }
-    ]
+    ],
+    "source": "built-in",
+    "confidence": 1.0,
+    "created": "2026-03-17T16:28:20.114339",
+    "last_matched": null
   }
 }

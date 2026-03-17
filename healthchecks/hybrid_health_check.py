@@ -15,6 +15,10 @@ import re
 import json
 import subprocess
 import paramiko
+
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -691,7 +695,9 @@ COMPONENT_TO_CHECK = {
     "Installer": "installer",
 }
 
-# Global SSH client
+# Global SSH client (thread-safe: Paramiko multiplexes channels over one transport)
+import threading
+_ssh_lock = threading.Lock()
 ssh_client = None
 
 def call_jira_mcp(tool_name, arguments):
@@ -1136,433 +1142,493 @@ def search_emails_for_issues(issues, gmail_account="guchen@redhat.com"):
 # Storage for dynamically added checks
 SUGGESTED_NEW_CHECKS = []
 
-# Knowledge Base - Based on real Jira bugs (CNV, OCPBUGS)
-KNOWN_ISSUES = {
-    "virt-handler-memory": {
-        "pattern": ["virt-handler", "high_memory", "memory"],
-        "jira": ["CNV-66551", "CNV-71448", "CNV-30274"],
-        "title": "virt-handler High Memory Usage",
-        "description": "virt-handler pods using more memory than expected. Common at scale (>50 VMs per node).",
-        "root_cause": [
-            "Memory requests are hardcoded and set too low for large scale deployments",
-            "Goroutine leaks after EUS upgrades (CNV-71448)",
-            "Object cache not properly cleaned up at high VM density"
-        ],
-        "suggestions": [
-            "Check if running >50 VMs per node - consider spreading workload",
-            "Review virt-handler resource requests in HyperConverged CR",
-            "If after upgrade, consider rolling restart of virt-handler pods",
-            "Monitor with: oc adm top pods -n openshift-cnv -l kubevirt.io=virt-handler"
-        ],
-        "verify_cmd": "oc adm top pods -n openshift-cnv -l kubevirt.io=virt-handler --no-headers"
-    },
-    "virt-handler-error": {
-        "pattern": ["virt-handler", "error", "crash", "restart"],
-        "jira": ["CNV-68292", "CNV-70607"],
-        "title": "virt-handler Pod Errors",
-        "description": "virt-handler pods in error state, often during high-scale VM operations.",
-        "root_cause": [
-            "Deleting large number of VMs at once (>6k) can lock virt-handler",
-            "Tight loop on uncompleted migrations blocks node drain"
-        ],
-        "suggestions": [
-            "Delete VMs in smaller batches (100-200 at a time)",
-            "Check for stuck migrations: oc get vmim -A | grep Running",
-            "Force delete stuck pods if necessary: oc delete pod -n openshift-cnv <pod> --force"
-        ],
-        "verify_cmd": "oc get pods -n openshift-cnv -l kubevirt.io=virt-handler --no-headers"
-    },
-    "noobaa-endpoint": {
-        "pattern": ["noobaa-endpoint", "ContainerStatusUnknown", "openshift-storage"],
-        "jira": ["OCPBUGS-storage"],
-        "title": "NooBaa Endpoint Issues",
-        "description": "NooBaa endpoint pods in ContainerStatusUnknown state.",
-        "root_cause": [
-            "Node failure or network partition caused container state to become unknown",
-            "ODF/NooBaa components not properly reconciled after node issues"
-        ],
-        "suggestions": [
-            "Check node health where pods were scheduled",
-            "Delete the stuck pods to trigger rescheduling: oc delete pod -n openshift-storage <pod>",
-            "Verify ODF operator health: oc get csv -n openshift-storage"
-        ],
-        "verify_cmd": "oc get pods -n openshift-storage -l noobaa-core=noobaa --no-headers"
-    },
-    "metal3-crashloop": {
-        "pattern": ["metal3-image-customization", "CrashLoopBackOff", "Init"],
-        "jira": ["OCPBUGS-48789"],
-        "title": "Metal3 Image Customization CrashLoop",
-        "description": "metal3-image-customization pod failing to start.",
-        "root_cause": [
-            "Service validation fails when workers are taken offline for servicing",
-            "Network connectivity issues to metal3-image-customization-service"
-        ],
-        "suggestions": [
-            "Check metal3 service: oc get svc -n openshift-machine-api",
-            "Review pod logs: oc logs -n openshift-machine-api -l app=metal3-image-customization",
-            "Ensure at least one worker is available during servicing operations"
-        ],
-        "verify_cmd": "oc get pods -n openshift-machine-api -l app=metal3-image-customization --no-headers"
-    },
-    "container-status-unknown": {
-        "pattern": ["ContainerStatusUnknown"],
-        "jira": ["OCPBUGS-general"],
-        "title": "Container Status Unknown",
-        "description": "Pods stuck in ContainerStatusUnknown state.",
-        "root_cause": [
-            "Node became unreachable or was rebooted unexpectedly",
-            "Kubelet lost connection to container runtime",
-            "Node was cordoned/drained but pods weren't properly evicted"
-        ],
-        "suggestions": [
-            "Check node status: oc get nodes",
-            "Force delete stuck pods: oc delete pod <pod> -n <ns> --force --grace-period=0",
-            "Check kubelet logs on affected node",
-            "Verify node network connectivity"
-        ],
-        "verify_cmd": "oc get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded | grep -i unknown"
-    },
-    "volumesnapshot-not-ready": {
-        "pattern": ["volumesnapshot", "snapshot_issues", "not ready"],
-        "jira": ["CNV-45516", "CNV-52369", "CNV-74930"],
-        "title": "VolumeSnapshot Not Ready",
-        "description": "VolumeSnapshots stuck in non-ready state.",
-        "root_cause": [
-            "LVM Storage with Filesystem mode has size mismatch issues (CNV-52369)",
-            "Dangling snapshots from previous operations (CNV-45516)",
-            "Default storage class changes can delete snapshots (CNV-74930)"
-        ],
-        "suggestions": [
-            "Check snapshot status: oc get volumesnapshot -A -o wide",
-            "For LVM: ensure using Block volume mode for snapshots",
-            "Delete orphaned snapshots if source PVC no longer exists",
-            "Verify VolumeSnapshotClass exists: oc get volumesnapshotclass"
-        ],
-        "verify_cmd": "oc get volumesnapshot -A --no-headers | grep -v true"
-    },
-    "datavolume-stuck": {
-        "pattern": ["dv_issues", "datavolume", "ImportInProgress", "Pending"],
-        "jira": ["CNV-storage"],
-        "title": "DataVolume Import Stuck",
-        "description": "DataVolumes stuck in import or pending state.",
-        "root_cause": [
-            "CDI importer pod failed or is slow",
-            "Source image URL unreachable",
-            "Insufficient storage space"
-        ],
-        "suggestions": [
-            "Check CDI pods: oc get pods -n openshift-cnv -l app=containerized-data-importer",
-            "Check importer pod logs: oc logs -n <ns> importer-<dv-name>",
-            "Verify source URL accessibility",
-            "Check PVC events: oc describe pvc <pvc-name> -n <ns>"
-        ],
-        "verify_cmd": "oc get dv -A --no-headers | grep -v Succeeded"
-    },
-    "migration-failed": {
-        "pattern": ["migration", "failed", "vmim"],
-        "jira": ["CNV-74568", "CNV-71962", "CNV-74856", "CNV-76280"],
-        "title": "VM Live Migration Failed",
-        "description": "Virtual machine migrations failing.",
-        "root_cause": [
-            "CPU feature mismatch between source and target nodes (CNV-74856)",
-            "Migration between different CPU architectures AMD/Intel (CNV-71957)",
-            "Migration breaks after cluster upgrade (CNV-74568)",
-            "Storage migration between different backends fails (CNV-76280)"
-        ],
-        "suggestions": [
-            "Check VMI migration status: oc get vmim -A -o wide",
-            "Ensure homogeneous CPU types across cluster or use CPU passthrough",
-            "After upgrades, restart virt-handler: oc rollout restart ds/virt-handler -n openshift-cnv",
-            "For storage migration, ensure same storage class capabilities"
-        ],
-        "verify_cmd": "oc get vmim -A --no-headers | grep -i failed"
-    },
-    "stuck-migration": {
-        "pattern": ["stuck_migrations", "migration", "Running"],
-        "jira": ["CNV-74866", "CNV-70607", "CNV-69281"],
-        "title": "VM Migration Stuck",
-        "description": "Live migrations stuck in Running state for extended periods.",
-        "root_cause": [
-            "virt-handler tight loop on uncompleted migration (CNV-74866)",
-            "Network bandwidth saturation during large VM migrations",
-            "parallelMigrationsPerCluster limit not working properly (CNV-69281)"
-        ],
-        "suggestions": [
-            "Check migration details: oc describe vmim <name> -n <ns>",
-            "Cancel stuck migration: oc delete vmim <name> -n <ns>",
-            "Reduce parallel migrations in HyperConverged spec",
-            "Check network bandwidth between nodes"
-        ],
-        "verify_cmd": "oc get vmim -A --no-headers | grep Running"
-    },
-    "cordoned-node-vms": {
-        "pattern": ["cordoned_vms", "SchedulingDisabled"],
-        "jira": ["CNV-20450"],
-        "title": "VMs on Cordoned Nodes",
-        "description": "VMs running on nodes marked as SchedulingDisabled.",
-        "root_cause": [
-            "Node was cordoned but VMs weren't migrated (CNV-20450)",
-            "Migrations to cordoned nodes during testing"
-        ],
-        "suggestions": [
-            "Migrate VMs off cordoned nodes: virtctl migrate <vm-name>",
-            "Check why node is cordoned: oc describe node <node>",
-            "Drain node properly: oc adm drain <node> --ignore-daemonsets --delete-emptydir-data"
-        ],
-        "verify_cmd": "oc get nodes | grep SchedulingDisabled && oc get vmi -A -o wide"
-    },
-    "etcd-unhealthy": {
-        "pattern": ["etcd", "unhealthy"],
-        "jira": ["OCPBUGS-74962", "OCPBUGS-70140"],
-        "title": "etcd Cluster Issues",
-        "description": "etcd members unhealthy or high latency.",
-        "root_cause": [
-            "High etcd latency under load (OCPBUGS-74962)",
-            "Database size growing due to large operators (OCPBUGS-70140)",
-            "Disk I/O saturation on control plane nodes"
-        ],
-        "suggestions": [
-            "Check etcd status: oc get pods -n openshift-etcd",
-            "Monitor etcd metrics for latency spikes",
-            "Check disk I/O on control plane nodes",
-            "Consider defragmentation if DB size is large"
-        ],
-        "verify_cmd": "oc get pods -n openshift-etcd -l app=etcd --no-headers"
-    },
-    "oom-events": {
-        "pattern": ["oom_events", "OOMKilled"],
-        "jira": ["CNV-75962", "CNV-63538"],
-        "title": "OOMKilled Pods",
-        "description": "Pods being killed due to Out of Memory.",
-        "root_cause": [
-            "kubevirt-migration-controller OOMKilled at scale (CNV-75962)",
-            "virt-launcher consuming more memory than assigned (CNV-63538)",
-            "Memory limits set too low for workload"
-        ],
-        "suggestions": [
-            "Check which pods are OOMKilled: oc get events -A --field-selector reason=OOMKilled",
-            "Review memory requests/limits in pod spec",
-            "For CNV components, check HyperConverged resource settings",
-            "Monitor memory usage: oc adm top pods -n <namespace>"
-        ],
-        "verify_cmd": "oc get events -A --field-selector reason=OOMKilled --no-headers"
-    },
-    "csi-issues": {
-        "pattern": ["csi_issues", "csi", "driver"],
-        "jira": ["OCPBUGS-69390", "CNV-70889"],
-        "title": "CSI Driver Issues",
-        "description": "CSI driver pods not running properly.",
-        "root_cause": [
-            "CSI driver crash on specific cloud providers (OCPBUGS-69390)",
-            "kubevirt-csi-controller crash when resize not supported (CNV-70889)"
-        ],
-        "suggestions": [
-            "Check CSI pods: oc get pods -A | grep csi",
-            "Review CSI driver logs: oc logs -n <ns> <csi-pod>",
-            "Verify storage class configuration",
-            "Check if storage backend supports required features"
-        ],
-        "verify_cmd": "oc get pods -A --no-headers | grep csi | grep -v Running"
-    },
-    "mco-degraded": {
-        "pattern": ["machine-config", "operator-degraded", "machineconfigpool", "syncRequiredMachineConfigPools"],
-        "jira": ["OCPBUGS-47041", "OCPBUGS-38553", "OCPBUGS-41786"],
-        "title": "Machine Config Operator Degraded",
-        "description": "Machine Config Operator is degraded. MachineConfigPool workers may be failing to render or apply updated MachineConfigs.",
-        "root_cause": [
-            "MachineConfigPool 'worker' is degraded — nodes failed to apply the desired MachineConfig (context deadline exceeded)",
-            "Nodes stuck in NotReady or SchedulingDisabled after a failed config render or drain timeout",
-            "Post-upgrade MC render failure due to incompatible custom MachineConfigs (OCPBUGS-47041)",
-            "MCD drain timeout when pods have long terminationGracePeriod or PodDisruptionBudgets blocking eviction"
-        ],
-        "suggestions": [
-            "Check MachineConfigPool status: oc get mcp",
-            "Identify degraded nodes: oc get nodes -o wide | grep -v ' Ready '",
-            "Check MCD logs on degraded node: oc logs -n openshift-machine-config-operator machine-config-daemon-<id>",
-            "Review rendered MC diff: oc describe mc <rendered-mc>",
-            "If stuck after upgrade, approve pending CSRs: oc get csr | grep Pending",
-            "Force reboot stuck node: oc debug node/<node> -- chroot /host systemctl reboot"
-        ],
-        "verify_cmd": "oc get mcp && oc get co machine-config"
-    },
-    "operator-degraded-generic": {
-        "pattern": ["operator-degraded", "degraded"],
-        "jira": [],
-        "title": "Cluster Operator Degraded",
-        "description": "One or more cluster operators are in a Degraded state, indicating an issue within the operator's managed components.",
-        "root_cause": [
-            "Underlying pods managed by the operator are crashing or failing health checks",
-            "Resource constraints (CPU/memory) preventing operator pods from functioning",
-            "Configuration drift or invalid custom resource changes",
-            "Post-upgrade reconciliation failure"
-        ],
-        "suggestions": [
-            "Get operator details: oc describe co <operator-name>",
-            "Check operator namespace pods: oc get pods -n openshift-<operator-name>",
-            "Review operator logs: oc logs -n openshift-<operator-name> deployment/<operator-name>",
-            "Check recent events: oc get events -n openshift-<operator-name> --sort-by='.lastTimestamp'",
-            "If post-upgrade, wait for reconciliation or check for pending CSRs"
-        ],
-        "verify_cmd": "oc get co --no-headers | grep -vE 'True.*False.*False'"
-    },
-    "operator-unavailable": {
-        "pattern": ["operator-unavailable", "unavailable"],
-        "jira": [],
-        "title": "Cluster Operator Unavailable",
-        "description": "One or more cluster operators are unavailable, which means the operator's core functionality is not working.",
-        "root_cause": [
-            "Operator pods are not running or in CrashLoopBackOff",
-            "Critical dependency (e.g., etcd, API server) is down",
-            "Node hosting the operator pod went offline",
-            "Webhook or admission controller blocking operator reconciliation"
-        ],
-        "suggestions": [
-            "Immediately check: oc get co <operator-name> -o yaml",
-            "Check operator pods: oc get pods -n openshift-<operator-name> -o wide",
-            "Look for crashloop: oc get pods -A | grep -E 'CrashLoop|Error'",
-            "Check node health: oc get nodes -o wide",
-            "Review API server availability: oc get pods -n openshift-kube-apiserver"
-        ],
-        "verify_cmd": "oc get co --no-headers | grep -v 'True'"
-    },
-    "node-not-ready": {
-        "pattern": ["node", "not ready", "unhealthy"],
-        "jira": ["OCPBUGS-42135"],
-        "title": "Node Not Ready",
-        "description": "One or more nodes are in NotReady state, meaning workloads cannot be scheduled there.",
-        "root_cause": [
-            "Kubelet crashed or stopped on the affected node",
-            "Network partition between node and control plane",
-            "Disk pressure, memory pressure, or PID pressure conditions",
-            "Node kernel panic or hardware failure"
-        ],
-        "suggestions": [
-            "Check node conditions: oc describe node <node-name> | grep -A20 Conditions",
-            "Check kubelet on node: oc debug node/<node-name> -- chroot /host journalctl -u kubelet --since '30m ago'",
-            "Check system resources: oc adm top node <node-name>",
-            "If unrecoverable, drain and replace: oc adm drain <node-name> --ignore-daemonsets --delete-emptydir-data"
-        ],
-        "verify_cmd": "oc get nodes -o wide"
-    },
-    "alerts-firing": {
-        "pattern": ["alert", "firing"],
-        "jira": [],
-        "title": "Cluster Alerts Firing",
-        "description": "Active alerts indicate components that need attention. Critical alerts may require immediate action.",
-        "root_cause": [
-            "Alerts are symptom indicators — the root cause depends on the specific alert",
-            "Common: resource exhaustion, component failures, certificate expiry, etcd issues"
-        ],
-        "suggestions": [
-            "View active alerts in console: Observe → Alerting → Alerts",
-            "Check Prometheus: oc -n openshift-monitoring exec -c prometheus prometheus-k8s-0 -- promtool query instant http://localhost:9090 'ALERTS{alertstate=\"firing\"}'",
-            "Silence non-critical alerts during maintenance windows",
-            "Address critical alerts first, then warnings"
-        ],
-        "verify_cmd": "oc get pods -n openshift-monitoring"
-    }
+DRILLDOWN_COMMANDS = {
+    "node-not-ready": [
+        {"cmd": "oc describe node {name} 2>&1 | grep -A30 'Conditions:'", "desc": "Full node conditions (DiskPressure, MemoryPressure, PIDPressure, Ready)"},
+        {"cmd": "oc get events --field-selector involvedObject.name={name},reason!=NodeHasSufficientMemory,reason!=NodeHasNoDiskPressure --sort-by='.lastTimestamp' 2>&1 | tail -20", "desc": "Significant node events (excluding routine)"},
+        {"cmd": "oc describe node {name} 2>&1 | grep -A5 'Ready\\|MemoryPressure\\|DiskPressure\\|PIDPressure'", "desc": "Node condition reasons and messages"},
+        {"cmd": "oc get pods --field-selector spec.nodeName={name} -A --no-headers 2>&1 | grep -ciE 'evict|unknown|pending'", "desc": "Count of Evicted/Unknown/Pending pods on this node"},
+        {"cmd": "oc get node {name} -o wide 2>&1 | tail -1 | awk '{print $6}'", "desc": "Node internal IP (for SSH check)"},
+        {"cmd": "oc adm top node {name} 2>&1", "desc": "Node resource usage (fails if node is dead)"},
+    ],
+    "node-disk-pressure": [
+        {"cmd": "ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=no core@{node_ip} 'df -h /var /var/lib/kubelet /sysroot 2>/dev/null; echo --- ; df -ih /var 2>/dev/null'", "desc": "Filesystem usage on the node (blocks + inodes)"},
+        {"cmd": "ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=no core@{node_ip} 'sudo du -sh /var/lib/containers /var/lib/kubelet /var/log /var/lib/etcd 2>/dev/null | sort -rh'", "desc": "Top /var consumers breakdown (containers, kubelet, logs, etcd)"},
+        {"cmd": "ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=no core@{node_ip} 'sudo sh -c \"du -sh /var/lib/kubelet/pods/* 2>/dev/null | sort -rh | head -10\"'", "desc": "Top 10 pods by ephemeral disk usage under kubelet/pods"},
+        {"cmd": "ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=no core@{node_ip} 'sudo sh -c \"du -sh /var/lib/containers/storage/overlay/* 2>/dev/null | sort -rh | head -10\"'", "desc": "Top 10 container image layers by disk usage"},
+        {"cmd": "ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=no core@{node_ip} 'sudo sh -c \"du -sh /var/log/pods/* 2>/dev/null | sort -rh | head -10\"'", "desc": "Top 10 pods by log disk usage"},
+        {"cmd": "ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=no core@{node_ip} 'sudo sh -c \"for d in $(ls /var/lib/kubelet/pods/ 2>/dev/null | head -5); do sz=$(du -sh /var/lib/kubelet/pods/$d 2>/dev/null | cut -f1); vols=$(ls /var/lib/kubelet/pods/$d/volumes/kubernetes.io~empty-dir/ 2>/dev/null | tr \\\\n ,); echo $sz $d emptyDirs=$vols; done\" | sort -rh'", "desc": "Top 5 pod UUIDs with size and emptyDir volume names (identifies workload)"},
+        {"cmd": "oc describe node {name} 2>&1 | grep -B2 -A5 'DiskPressure'", "desc": "DiskPressure condition details"},
+        {"cmd": "oc get pods --field-selector spec.nodeName={name} -A --no-headers 2>&1 | grep -i evict | head -10", "desc": "Evicted pods on this node"},
+        {"cmd": "oc get events -A --sort-by='.lastTimestamp' 2>&1 | grep -i 'evict\\|disk\\|pressure\\|space' | tail -15", "desc": "Cluster events related to disk/eviction"},
+    ],
+    "node-memory-pressure": [
+        {"cmd": "oc describe node {name} 2>&1 | grep -B2 -A5 'MemoryPressure'", "desc": "MemoryPressure condition details"},
+        {"cmd": "oc describe node {name} 2>&1 | grep -A5 'Ready\\|MemoryPressure\\|DiskPressure\\|PIDPressure'", "desc": "All node conditions with reasons"},
+        {"cmd": "oc adm top pods --field-selector spec.nodeName={name} -A --no-headers 2>&1 | sort -k3 -rh | head -15", "desc": "Top memory consuming pods on this node"},
+        {"cmd": "oc adm top node {name} 2>&1", "desc": "Node overall resource usage"},
+        {"cmd": "oc get pods --field-selector spec.nodeName={name} -A --no-headers 2>&1 | wc -l", "desc": "Total pod count on this node"},
+        {"cmd": "oc get events -A --field-selector reason=OOMKilled --sort-by='.lastTimestamp' 2>&1 | tail -10", "desc": "Recent OOM kill events cluster-wide"},
+        {"cmd": "oc get pods --field-selector spec.nodeName={name} -A --no-headers 2>&1 | grep -ciE 'evict|oom'", "desc": "Count of evicted/OOM pods on this node"},
+    ],
+    "node-cordoned": [
+        {"cmd": "oc describe node {name} 2>&1 | grep -A10 'Taints:'", "desc": "Node taints (shows cordon reason)"},
+        {"cmd": "oc get mcp 2>&1", "desc": "MachineConfigPool status (node may be updating)"},
+        {"cmd": "oc get events --field-selector involvedObject.name={name} --sort-by='.lastTimestamp' 2>&1 | grep -iE 'drain|cordon|taint|schedule' | tail -10", "desc": "Drain/cordon events"},
+        {"cmd": "oc get nodes {name} -o yaml 2>&1 | grep -A5 'unschedulable'", "desc": "Unschedulable flag details"},
+    ],
+    "operator-crashloop": [
+        {"cmd": "oc get pods -n openshift-{name} --no-headers 2>&1 | grep -v Running | head -10", "desc": "Non-running pods in operator namespace"},
+        {"cmd": "oc logs -n openshift-{name} $(oc get pods -n openshift-{name} --no-headers 2>/dev/null | grep -v Running | head -1 | awk '{print $1}') --previous --tail=50 2>&1 | tail -30", "desc": "Previous container logs (crash reason)"},
+        {"cmd": "oc describe pod -n openshift-{name} $(oc get pods -n openshift-{name} --no-headers 2>/dev/null | grep -v Running | head -1 | awk '{print $1}') 2>&1 | grep -A10 'Last State:'", "desc": "Last container state (exit code, reason)"},
+        {"cmd": "oc describe pod -n openshift-{name} $(oc get pods -n openshift-{name} --no-headers 2>/dev/null | grep -v Running | head -1 | awk '{print $1}') 2>&1 | grep -A5 'Resources:'", "desc": "Pod resource limits"},
+        {"cmd": "oc get events -n openshift-{name} --sort-by='.lastTimestamp' 2>&1 | tail -15", "desc": "Recent events in operator namespace"},
+    ],
+    "pod-app-crash": [
+        {"cmd": "oc logs {pod} -n {ns} --previous --tail=80 2>&1 | tail -40", "desc": "Previous container logs (crash output)"},
+        {"cmd": "oc describe pod {pod} -n {ns} 2>&1 | grep -A10 'Last State:'", "desc": "Last container state (exit code, OOM, error)"},
+        {"cmd": "oc describe pod {pod} -n {ns} 2>&1 | grep -A5 'Resources:'", "desc": "Resource requests and limits"},
+        {"cmd": "oc get events -n {ns} --field-selector involvedObject.name={pod} --sort-by='.lastTimestamp' 2>&1 | tail -10", "desc": "Pod events timeline"},
+        {"cmd": "oc describe pod {pod} -n {ns} 2>&1 | grep -A3 'Restart Count:'", "desc": "Restart count and pattern"},
+    ],
+    "pod-evicted-disk": [
+        {"cmd": "oc get pod {pod} -n {ns} -o wide 2>&1 | tail -1", "desc": "Pod details (shows which node)"},
+        {"cmd": "oc describe pod {pod} -n {ns} 2>&1 | grep -A5 'Status:\\|Message:\\|Reason:'", "desc": "Pod eviction reason details"},
+        {"cmd": "oc get events -n {ns} --field-selector involvedObject.name={pod} --sort-by='.lastTimestamp' 2>&1 | tail -10", "desc": "Pod events"},
+        {"cmd": "oc get nodes --no-headers 2>&1 | grep -E 'NotReady|SchedulingDisabled'", "desc": "Nodes with issues"},
+        {"cmd": "oc describe node $(oc get pod {pod} -n {ns} -o jsonpath='{{.spec.nodeName}}' 2>/dev/null) 2>&1 | grep -A5 'DiskPressure' | head -8", "desc": "Node DiskPressure condition"},
+        {"cmd": "oc get pods --field-selector spec.nodeName=$(oc get pod {pod} -n {ns} -o jsonpath='{{.spec.nodeName}}' 2>/dev/null) -A --no-headers 2>&1 | grep -ci evict", "desc": "Count of evicted pods on same node"},
+    ],
+    "pod-evicted-generic": [
+        {"cmd": "oc describe pod {pod} -n {ns} 2>&1 | grep -A5 'Status:\\|Message:\\|Reason:'", "desc": "Pod eviction details"},
+        {"cmd": "oc get events -n {ns} --field-selector involvedObject.name={pod} --sort-by='.lastTimestamp' 2>&1 | tail -10", "desc": "Pod events"},
+        {"cmd": "oc describe node $(oc get pod {pod} -n {ns} -o jsonpath='{{.spec.nodeName}}' 2>/dev/null) 2>&1 | grep -A20 'Conditions:'", "desc": "Node conditions of hosting node"},
+    ],
+    "mco-degraded": [
+        {"cmd": "oc get mcp 2>&1", "desc": "MachineConfigPool status"},
+        {"cmd": "oc get co machine-config -o yaml 2>&1 | grep -A10 'message:' | head -20", "desc": "MCO error message details"},
+        {"cmd": "oc get nodes --no-headers 2>&1 | grep -E 'NotReady|SchedulingDisabled' | head -10", "desc": "Nodes that are NotReady or cordoned"},
+        {"cmd": "oc get pods -n openshift-machine-config-operator --no-headers 2>&1 | grep -v Running | head -10", "desc": "Non-running MCD pods"},
+        {"cmd": "oc get mcp worker -o yaml 2>&1 | grep -A10 'degradedMachineCount\\|message' | head -20", "desc": "Worker MCP degraded details"},
+        {"cmd": "oc get events -n openshift-machine-config-operator --sort-by='.lastTimestamp' 2>&1 | tail -15", "desc": "Recent MCO events"},
+        {"cmd": "oc get nodes --no-headers 2>&1 | grep SchedulingDisabled | head -5", "desc": "Nodes stuck in drain (SchedulingDisabled)"},
+    ],
+    "csi-crashloop": [
+        {"cmd": "oc get pods -A --no-headers 2>&1 | grep -i csi | grep -v Running | head -10", "desc": "Non-running CSI pods"},
+        {"cmd": "oc logs $(oc get pods -A --no-headers 2>&1 | grep -i csi | grep -i crash | head -1 | awk '{print \"-n \" $1 \" \" $2}') --previous --tail=50 2>&1 | tail -30", "desc": "Previous logs of crashing CSI pod"},
+        {"cmd": "oc describe pod $(oc get pods -A --no-headers 2>&1 | grep -i csi | grep -v Running | head -1 | awk '{print $2 \" -n \" $1}') 2>&1 | grep -A10 'Last State:\\|Events:' | head -25", "desc": "Pod last state and events"},
+        {"cmd": "oc get events -A --sort-by='.lastTimestamp' 2>&1 | grep -i csi | tail -10", "desc": "CSI-related events"},
+        {"cmd": "oc get storagecluster -n openshift-storage 2>&1", "desc": "Storage cluster status"},
+    ],
+    "csi-pod-issue": [
+        {"cmd": "oc get pods -A --no-headers 2>&1 | grep -i csi | grep -v Running | head -10", "desc": "Non-running CSI pods"},
+        {"cmd": "oc get events -A --sort-by='.lastTimestamp' 2>&1 | grep -i csi | tail -10", "desc": "CSI-related events"},
+        {"cmd": "oc get csidrivers 2>&1", "desc": "Registered CSI drivers"},
+    ],
+    "virt-handler-memory-deep": [
+        {"cmd": "oc adm top pods -n openshift-cnv -l kubevirt.io=virt-handler --no-headers 2>&1 | sort -k3 -rh | head -10", "desc": "Top memory virt-handler pods"},
+        {"cmd": "oc get vmi -A --no-headers 2>&1 | wc -l", "desc": "Total VMI count"},
+        {"cmd": "oc get vmi -A -o wide --no-headers 2>&1 | awk '{print $4}' | sort | uniq -c | sort -rn | head -10", "desc": "VM count per node (top 10)"},
+        {"cmd": "oc get ds virt-handler -n openshift-cnv -o yaml 2>&1 | grep -A10 'resources:' | head -12", "desc": "virt-handler resource requests/limits"},
+        {"cmd": "oc get events -n openshift-cnv --field-selector reason=OOMKilled --sort-by='.lastTimestamp' 2>&1 | tail -5", "desc": "Recent OOM kills in CNV namespace"},
+        {"cmd": "oc logs -n openshift-cnv $(oc get pods -n openshift-cnv -l kubevirt.io=virt-handler --no-headers -o name | head -1) --tail=30 2>&1 | grep -iE 'memory|oom|error|warn' | head -15", "desc": "virt-handler warning/error logs"},
+    ],
 }
 
-# Investigation commands for each issue type - used for deep RCA
-INVESTIGATION_COMMANDS = {
-    "pod-crashloop": [
-        {"cmd": "oc logs {pod} -n {ns} --tail=50 2>&1 | head -30", "desc": "Recent pod logs"},
-        {"cmd": "oc logs {pod} -n {ns} --previous --tail=30 2>&1 | head -20", "desc": "Previous container logs"},
-        {"cmd": "oc describe pod {pod} -n {ns} 2>&1 | grep -A20 'Events:'", "desc": "Pod events"},
-        {"cmd": "oc get pod {pod} -n {ns} -o jsonpath='{{.status.containerStatuses[*].state}}' 2>&1", "desc": "Container state"},
+DRILLDOWN_ANALYSIS_RULES = {
+    "node-disk-pressure": [
+        {"keywords": ["kubelet stopped posting", "nodestatusunknown"], "conclusion": "Node is DEAD - kubelet stopped posting status; all conditions show Unknown. This is NOT a disk issue, the node itself is unreachable", "confidence": "high",
+         "fix": "1) Check if node is powered on via BMC/IPMI. 2) Try SSH: ssh core@<node-ip>. 3) If reachable: systemctl status kubelet, journalctl -u kubelet. 4) If not reachable: check network/switch, reboot via BMC.",
+         "doc": "https://access.redhat.com/solutions/5765631",
+         "followup": "node-dead-verify"},
+        {"keywords": ["prometheus", "/prometheus", "prometheus-k8s"], "conclusion": "Prometheus TSDB is consuming excessive disk space", "confidence": "high",
+         "fix": "Configure retention: oc edit configmap cluster-monitoring-config -n openshift-monitoring. Add 'retentionSize: 40GB' under prometheusK8s. Also set 'volumeClaimTemplate' to use a PVC instead of emptyDir.",
+         "doc": "https://access.redhat.com/solutions/4976801"},
+        {"keywords": ["/var/lib/containers"], "conclusion": "Container images and layers consuming disk", "confidence": "high",
+         "fix": "Run garbage collection: crictl rmi --prune, or increase imageGCHighThresholdPercent in kubelet config",
+         "doc": "https://docs.openshift.com/container-platform/latest/nodes/nodes/nodes-nodes-garbage-collection.html"},
+        {"keywords": ["/var/log", "journal"], "conclusion": "Log files consuming disk space", "confidence": "medium",
+         "fix": "Configure journald MaxRetentionSec or SystemMaxUse, check for pods with excessive logging",
+         "doc": "https://access.redhat.com/solutions/6963786"},
+        {"keywords": ["kubelet/pods", "emptydir", "ephemeral"], "conclusion": "Pod ephemeral storage (emptyDir volumes) consuming disk", "confidence": "medium",
+         "fix": "Identify pods with large emptyDir usage and add ephemeral-storage limits"},
+        {"keywords": ["95%", "96%", "97%", "98%", "99%", "100%"], "conclusion": "Filesystem is critically full (95%+)", "confidence": "high",
+         "fix": "Identify the full filesystem from df -h output, then check its largest consumers with du -sh"},
+        {"keywords": ["kubelet/pods", "kubelet\\pods"], "conclusion": "Pod ephemeral storage is a top disk consumer under /var/lib/kubelet/pods", "confidence": "high",
+         "fix": "Identify the largest pod directories and their workloads. Check volume names inside each UUID directory to identify the pod (e.g. 'prometheus-k8s-db' = Prometheus). Cross-reference with: oc get pods --field-selector spec.nodeName=<node> -A"},
     ],
-    "pod-unknown": [
-        {"cmd": "oc get pod {pod} -n {ns} -o wide 2>&1", "desc": "Pod details with node"},
-        {"cmd": "oc describe pod {pod} -n {ns} 2>&1 | grep -A5 'Conditions:'", "desc": "Pod conditions"},
-        {"cmd": "oc get node $(oc get pod {pod} -n {ns} -o jsonpath='{{.spec.nodeName}}' 2>/dev/null) 2>&1 | tail -1", "desc": "Node status"},
-        {"cmd": "oc get events -n {ns} --field-selector involvedObject.name={pod} 2>&1 | tail -5", "desc": "Related events"},
+    "node-not-ready": [
+        {"keywords": ["kubelet stopped posting", "nodestatusunknown"], "conclusion": "Kubelet stopped posting node status - node is unreachable or kubelet crashed", "confidence": "high",
+         "fix": "1) Check if node is powered on via BMC/IPMI. 2) Try SSH: ssh core@<node-ip>. 3) If reachable: systemctl status kubelet, journalctl -u kubelet. 4) If not reachable: check network/switch.",
+         "doc": "https://access.redhat.com/solutions/5765631",
+         "followup": "node-dead-verify"},
+        {"keywords": ["diskpressure", "disk pressure"], "conclusion": "Node Not Ready due to DiskPressure condition", "confidence": "high",
+         "fix": "See disk pressure drilldown - identify and clean the top disk consumer",
+         "follow_drilldown": "node-disk-pressure"},
+        {"keywords": ["memorypressure", "memory pressure"], "conclusion": "Node Not Ready due to MemoryPressure condition", "confidence": "high",
+         "fix": "See memory pressure drilldown - identify and stop the top memory consumer",
+         "follow_drilldown": "node-memory-pressure"},
+        {"keywords": ["oom", "out of memory", "killed process"], "conclusion": "Node Not Ready due to kernel OOM killer", "confidence": "high",
+         "fix": "Check dmesg for which process was OOM-killed, increase node memory or reduce workload",
+         "followup": "node-dead-verify"},
+        {"keywords": ["kubelet", "stopped", "not running", "failed"], "conclusion": "Kubelet process is not running on the node", "confidence": "high",
+         "fix": "SSH to node and check kubelet: journalctl -u kubelet --no-pager | tail -50",
+         "followup": "node-dead-verify"},
+        {"keywords": ["connection refused", "unreachable", "timeout"], "conclusion": "Node is network-unreachable or powered off", "confidence": "high",
+         "fix": "Check physical/BMC connectivity, ping the node, check switch ports",
+         "followup": "node-dead-verify"},
+        {"keywords": ["i/o error", "disk error", "hardware"], "conclusion": "Hardware failure (disk I/O or other)", "confidence": "high",
+         "fix": "Check BMC/IPMI logs, replace faulty hardware, cordon and drain the node",
+         "followup": "node-dead-verify"},
     ],
-    "virt-handler-memory": [
-        {"cmd": "oc adm top pods -n openshift-cnv -l kubevirt.io=virt-handler --no-headers 2>&1", "desc": "virt-handler resource usage"},
-        {"cmd": "oc get pods -n openshift-cnv -l kubevirt.io=virt-handler -o jsonpath='{{range .items[*]}}{{.metadata.name}} {{.spec.nodeName}}{{\"\\n\"}}{{end}}' 2>&1", "desc": "virt-handler pod locations"},
-        {"cmd": "oc exec -n openshift-cnv $(oc get pods -n openshift-cnv -l kubevirt.io=virt-handler -o name | head -1) -- cat /proc/meminfo 2>&1 | grep -E 'MemTotal|MemFree|MemAvailable' | head -3", "desc": "Node memory info"},
-        {"cmd": "oc get vmi -A --no-headers 2>&1 | wc -l", "desc": "Total VMI count"},
-        {"cmd": "oc logs -n openshift-cnv $(oc get pods -n openshift-cnv -l kubevirt.io=virt-handler -o name | head -1) --tail=20 2>&1 | grep -i 'memory\\|oom\\|error' | head -10", "desc": "Memory-related logs"},
+    "node-memory-pressure": [
+        {"keywords": ["oom", "killed"], "conclusion": "Kernel OOM killer is actively killing processes", "confidence": "high",
+         "fix": "Identify which process was OOM-killed from dmesg, increase memory limits or reduce pods"},
+        {"keywords": ["virt-handler", "virt-launcher"], "conclusion": "KubeVirt components consuming excessive memory (known issue with VM density)", "confidence": "high",
+         "fix": "Reduce VM count per node, or increase virt-handler memory limits (CNV-71448)"},
+        {"keywords": ["prometheus", "monitoring"], "conclusion": "Monitoring stack consuming excessive memory", "confidence": "medium",
+         "fix": "Tune Prometheus memory by reducing retention, scrape interval, or number of targets"},
     ],
-    "volumesnapshot": [
-        {"cmd": "oc get volumesnapshot -A -o wide 2>&1 | grep -v 'true' | head -10", "desc": "Unhealthy snapshots"},
-        {"cmd": "oc describe volumesnapshot {name} -n {ns} 2>&1 | grep -A10 'Status:'", "desc": "Snapshot status details"},
-        {"cmd": "oc get volumesnapshotclass 2>&1", "desc": "VolumeSnapshot classes"},
-        {"cmd": "oc get volumesnapshotcontent 2>&1 | grep -v 'true' | head -5", "desc": "Snapshot content status"},
-        {"cmd": "oc get pvc -A 2>&1 | head -10", "desc": "PVC status"},
+    "operator-crashloop": [
+        {"keywords": ["oomkilled", "out of memory", "oom"], "conclusion": "Operator pod OOM-killed - needs higher memory limit", "confidence": "high",
+         "fix": "Increase memory limit in operator deployment or subscription"},
+        {"keywords": ["permission denied", "forbidden", "rbac"], "conclusion": "RBAC/permission error preventing operator from functioning", "confidence": "high",
+         "fix": "Check ClusterRoleBindings and ServiceAccount permissions"},
+        {"keywords": ["connection refused", "dial tcp", "no such host"], "conclusion": "Operator cannot reach a required service endpoint", "confidence": "high",
+         "fix": "Check network policies and service availability in the namespace"},
+        {"keywords": ["exit code 1", "exit code 2", "panic", "fatal"], "conclusion": "Application error in operator code (bug or bad config)", "confidence": "medium",
+         "fix": "Check operator version, search Jira for matching bugs, consider reinstalling"},
     ],
-    "noobaa": [
-        {"cmd": "oc get pods -n openshift-storage -l noobaa-core=noobaa 2>&1", "desc": "NooBaa pod status"},
-        {"cmd": "oc describe pod {pod} -n openshift-storage 2>&1 | grep -A15 'Events:'", "desc": "Pod events"},
-        {"cmd": "oc get storagecluster -n openshift-storage 2>&1", "desc": "Storage cluster status"},
-        {"cmd": "oc get noobaa -n openshift-storage -o yaml 2>&1 | grep -A5 'status:'", "desc": "NooBaa status"},
-        {"cmd": "oc logs {pod} -n openshift-storage --tail=30 2>&1 | head -20", "desc": "Pod logs"},
+    "pod-app-crash": [
+        {"keywords": ["oomkilled", "exit code 137"], "conclusion": "Container OOM-killed (exit code 137 = SIGKILL from OOM)", "confidence": "high",
+         "fix": "Increase memory limit in pod spec"},
+        {"keywords": ["exit code 1", "error", "exception"], "conclusion": "Application runtime error", "confidence": "medium",
+         "fix": "Check application logs for the specific error"},
+        {"keywords": ["exit code 2", "usage", "invalid"], "conclusion": "Invalid arguments or configuration", "confidence": "medium",
+         "fix": "Check ConfigMaps and environment variables passed to the pod"},
     ],
-    "metal3": [
-        {"cmd": "oc get pods -n openshift-machine-api -l app=metal3-image-customization 2>&1", "desc": "Metal3 pods"},
-        {"cmd": "oc logs -n openshift-machine-api -l app=metal3-image-customization --tail=50 2>&1 | head -30", "desc": "Pod logs"},
-        {"cmd": "oc describe pod {pod} -n openshift-machine-api 2>&1 | grep -A20 'Events:'", "desc": "Pod events"},
-        {"cmd": "oc get svc -n openshift-machine-api | grep metal3 2>&1", "desc": "Metal3 services"},
-        {"cmd": "oc get bmh -A 2>&1 | head -10", "desc": "BareMetalHost status"},
+    "pod-evicted-disk": [
+        {"keywords": ["kubelet stopped posting", "nodestatusunknown"], "conclusion": "Node is dead/unreachable - kubelet stopped. Pods were evicted as a consequence", "confidence": "high",
+         "fix": "Check node power/network. SSH to node and check kubelet: systemctl status kubelet",
+         "doc": "https://access.redhat.com/solutions/5765631",
+         "followup": "node-dead-verify"},
+        {"keywords": ["diskpressure", "disk pressure"], "conclusion": "Node has DiskPressure - kubelet is evicting pods to free ephemeral storage", "confidence": "high",
+         "fix": "Identify top disk consumers on the node. Common culprits: Prometheus TSDB, container images, pod logs. Run: du -sh /var/lib/containers /var/lib/kubelet /var/log on the node.",
+         "doc": "https://access.redhat.com/solutions/4976801",
+         "follow_drilldown": "node-disk-pressure"},
     ],
-    "etcd": [
-        {"cmd": "oc get pods -n openshift-etcd -l app=etcd 2>&1", "desc": "etcd pod status"},
-        {"cmd": "oc logs -n openshift-etcd -l app=etcd --tail=30 2>&1 | grep -i 'error\\|warn\\|slow' | head -15", "desc": "etcd error logs"},
-        {"cmd": "oc get etcd cluster -o yaml 2>&1 | grep -A10 'status:'", "desc": "etcd cluster status"},
-        {"cmd": "oc rsh -n openshift-etcd $(oc get pods -n openshift-etcd -l app=etcd -o name | head -1) etcdctl endpoint health 2>&1", "desc": "etcd health check"},
+    "pod-evicted-generic": [
+        {"keywords": ["diskpressure"], "conclusion": "Pod evicted due to DiskPressure on the node", "confidence": "high",
+         "fix": "Free disk space on the node or increase storage capacity",
+         "follow_drilldown": "node-disk-pressure"},
+        {"keywords": ["memorypressure"], "conclusion": "Pod evicted due to MemoryPressure on the node", "confidence": "high",
+         "fix": "Reduce memory usage or add more memory to the node",
+         "follow_drilldown": "node-memory-pressure"},
+        {"keywords": ["evict"], "conclusion": "Pod evicted by kubelet due to resource pressure", "confidence": "medium",
+         "fix": "Check node conditions to identify which resource is under pressure"},
     ],
-    "migration": [
-        {"cmd": "oc get vmim -A -o wide 2>&1 | head -10", "desc": "Migration status"},
-        {"cmd": "oc describe vmim {name} -n {ns} 2>&1 | grep -A20 'Status:'", "desc": "Migration details"},
-        {"cmd": "oc get vmi {vm} -n {ns} -o yaml 2>&1 | grep -A10 'migrationState:'", "desc": "VMI migration state"},
-        {"cmd": "oc logs -n openshift-cnv -l kubevirt.io=virt-handler --tail=30 2>&1 | grep -i migration | head -10", "desc": "Migration logs"},
+    "mco-degraded": [
+        {"keywords": ["context deadline exceeded", "timeout"], "conclusion": "MachineConfig apply timed out - node drain or reboot took too long. Likely a pod with a PodDisruptionBudget blocking the drain", "confidence": "high",
+         "fix": "1) Check stuck nodes: oc get nodes | grep SchedulingDisabled. 2) Check PDBs: oc get pdb -A. 3) Check what's blocking drain: oc get pods --field-selector spec.nodeName=<node> -A | grep -v Completed",
+         "doc": "https://access.redhat.com/solutions/5414371",
+         "followup": "mco-drain-blocked"},
+        {"keywords": ["notready", "unavailable"], "conclusion": "MCP degraded because a node went NotReady during update", "confidence": "high",
+         "fix": "Check the NotReady node, fix it first, then MCO will recover automatically",
+         "followup": "mco-drain-blocked"},
+        {"keywords": ["schedulingdisabled"], "conclusion": "A node is stuck in SchedulingDisabled (drain did not complete)", "confidence": "high",
+         "fix": "Check what's blocking drain on the stuck node, then uncordon: oc adm uncordon <node>",
+         "followup": "mco-drain-blocked"},
+        {"keywords": ["failed to resync", "resync"], "conclusion": "MCO failed to resync to target version - possible incompatible custom MachineConfig", "confidence": "high",
+         "fix": "Check for custom MachineConfigs: oc get mc | grep -v rendered | grep -v 00-. Remove or fix incompatible custom configs."},
+        {"keywords": ["degraded", "machine-config-daemon"], "conclusion": "MachineConfigDaemon on one or more nodes is reporting degraded", "confidence": "medium",
+         "fix": "Check MCD logs on degraded nodes: oc logs -n openshift-machine-config-operator <mcd-pod> --tail=50",
+         "followup": "mco-drain-blocked"},
     ],
-    "csi": [
-        {"cmd": "oc get pods -A 2>&1 | grep csi", "desc": "CSI pod status"},
-        {"cmd": "oc logs {pod} -n {ns} --tail=30 2>&1 | grep -i 'error\\|fail' | head -15", "desc": "CSI error logs"},
-        {"cmd": "oc get csidrivers 2>&1", "desc": "CSI drivers"},
-        {"cmd": "oc get sc 2>&1", "desc": "Storage classes"},
+    "csi-crashloop": [
+        {"keywords": ["oomkilled", "oom", "exit code 137"], "conclusion": "CSI controller pod OOM-killed - needs higher memory limit", "confidence": "high",
+         "fix": "Increase memory limit in the CSI controller deployment"},
+        {"keywords": ["permission denied", "forbidden", "rbac"], "conclusion": "CSI controller lacks required RBAC permissions", "confidence": "high",
+         "fix": "Check ClusterRoleBindings for the CSI service account"},
+        {"keywords": ["connection refused", "dial tcp", "no such host"], "conclusion": "CSI controller cannot connect to the storage backend", "confidence": "high",
+         "fix": "Check storage backend connectivity and network policies"},
+        {"keywords": ["needsreinstall", "installcheckfailed", "installwaiting"], "conclusion": "OLM CSV reports CSI operator needs reinstall - deployment not available. The operator installation is broken.", "confidence": "high",
+         "fix": "1) Check CSV status: oc get csv -n openshift-storage | grep csi. 2) Try deleting the CSV to trigger reinstall: oc delete csv <name> -n openshift-storage. 3) Check if the subscription is healthy: oc get sub -n openshift-storage.",
+         "doc": "https://access.redhat.com/solutions/6005941"},
+        {"keywords": ["leader election", "failed to acquire"], "conclusion": "CSI controller leader election failure - possible stale lock", "confidence": "medium",
+         "fix": "Delete the leader election ConfigMap/Lease and restart the CSI pods"},
+        {"keywords": ["crashloopbackoff", "error", "fail"], "conclusion": "CSI controller is crash-looping - check logs for the specific error", "confidence": "medium",
+         "fix": "Check previous container logs: oc logs <pod> -n <ns> --previous"},
     ],
-    "oom": [
-        {"cmd": "oc get events -A --field-selector reason=OOMKilled --sort-by='.lastTimestamp' 2>&1 | tail -10", "desc": "Recent OOM events"},
-        {"cmd": "oc describe pod {pod} -n {ns} 2>&1 | grep -A5 'Resources:'", "desc": "Pod resource limits"},
-        {"cmd": "oc adm top pods -n {ns} --no-headers 2>&1 | head -10", "desc": "Namespace resource usage"},
+    "csi-pod-issue": [
+        {"keywords": ["evicted"], "conclusion": "CSI pod was evicted due to resource pressure on the node", "confidence": "medium",
+         "fix": "Check node conditions and consider dedicated nodes for storage pods"},
+        {"keywords": ["pending"], "conclusion": "CSI pod is stuck in Pending state", "confidence": "medium",
+         "fix": "Check pod events for scheduling issues: oc describe pod <pod> -n <ns>"},
     ],
-    "operator-degraded": [
-        {"cmd": "oc get co --no-headers 2>&1 | grep -vE 'True.*False.*False'", "desc": "Unhealthy cluster operators"},
-        {"cmd": "oc get co {name} -o yaml 2>&1 | grep -A5 'message:' | head -30", "desc": "Operator error messages (full)"},
-        {"cmd": "oc describe co {name} 2>&1 | grep -A25 'Conditions:' | head -30", "desc": "Operator conditions"},
-        {"cmd": "oc get pods -n openshift-{name} --no-headers 2>&1 | head -20", "desc": "All pods in operator namespace"},
-        {"cmd": "oc get pods -A --no-headers 2>&1 | grep -E 'openshift-.*{name}' | grep -v Running | head -10", "desc": "Non-running pods in operator namespace"},
-        {"cmd": "oc logs -n openshift-{name} $(oc get pods -n openshift-{name} --no-headers -o name 2>/dev/null | head -1) --tail=40 2>&1 | grep -iE 'error|fail|warn|timeout|degrade' | tail -15", "desc": "Recent error/warning logs"},
-        {"cmd": "oc get events -n openshift-{name} --sort-by='.lastTimestamp' 2>&1 | tail -15", "desc": "Recent events in operator namespace"},
-        {"cmd": "oc get mcp 2>&1", "desc": "MachineConfigPool status (if MCO)"},
-        {"cmd": "oc get nodes --no-headers 2>&1 | grep -v ' Ready ' | head -10", "desc": "Nodes not in Ready state"},
-        {"cmd": "oc get csr 2>&1 | grep -i pending | head -5", "desc": "Pending CSRs"},
-    ],
-    "operator-unavailable": [
-        {"cmd": "oc get co --no-headers 2>&1 | grep -vE 'True.*False.*False'", "desc": "Unhealthy cluster operators"},
-        {"cmd": "oc get co {name} -o yaml 2>&1 | grep -A5 'message:' | head -30", "desc": "Operator error messages (full)"},
-        {"cmd": "oc describe co {name} 2>&1 | grep -A25 'Conditions:' | head -30", "desc": "Operator conditions"},
-        {"cmd": "oc get pods -n openshift-{name} --no-headers 2>&1 | head -20", "desc": "All pods in operator namespace"},
-        {"cmd": "oc get pods -A --no-headers 2>&1 | grep -E 'openshift-.*{name}' | grep -v Running | head -10", "desc": "Non-running pods in operator namespace"},
-        {"cmd": "oc logs -n openshift-{name} $(oc get pods -n openshift-{name} --no-headers -o name 2>/dev/null | head -1) --tail=40 2>&1 | grep -iE 'error|fail|warn|timeout' | tail -15", "desc": "Recent error/warning logs"},
-        {"cmd": "oc get events -n openshift-{name} --sort-by='.lastTimestamp' 2>&1 | tail -15", "desc": "Recent events in operator namespace"},
-        {"cmd": "oc get nodes --no-headers 2>&1 | grep -v ' Ready ' | head -10", "desc": "Nodes not in Ready state"},
-    ],
-    "node": [
-        {"cmd": "oc get nodes -o wide 2>&1", "desc": "All node status"},
-        {"cmd": "oc describe node {name} 2>&1 | grep -A20 'Conditions:'", "desc": "Node conditions"},
-        {"cmd": "oc adm top node {name} 2>&1", "desc": "Node resource usage"},
-        {"cmd": "oc get events --field-selector involvedObject.name={name} --sort-by='.lastTimestamp' 2>&1 | tail -10", "desc": "Node events"},
-    ],
-    "alert": [
-        {"cmd": "oc get pods -A --no-headers 2>&1 | grep -v Running | grep -v Completed | head -15", "desc": "Non-running pods"},
-        {"cmd": "oc get co --no-headers 2>&1 | grep -vE 'True.*False.*False'", "desc": "Unhealthy cluster operators"},
-        {"cmd": "oc get nodes --no-headers 2>&1 | grep -v ' Ready' | head -10", "desc": "Unhealthy nodes"},
-        {"cmd": "oc get events -A --sort-by='.lastTimestamp' 2>&1 | grep -i 'warning' | tail -15", "desc": "Recent warning events"},
+    "virt-handler-memory-deep": [
+        {"keywords": ["oomkilled", "oom"], "conclusion": "virt-handler is being OOM-killed. Memory limit too low for current VM density", "confidence": "high",
+         "fix": "Increase virt-handler memory limit via HCO: spec.infra.nodePlacement.tolerations or patch the DaemonSet directly. CNV-71448",
+         "doc": "https://issues.redhat.com/browse/CNV-71448"},
+        {"keywords": ["error", "fail", "timeout"], "conclusion": "virt-handler experiencing errors in addition to high memory usage", "confidence": "medium",
+         "fix": "Check virt-handler logs for root cause errors. High memory may be a side effect.",
+         "followup": "virt-handler-errors-deep"},
     ],
 }
+
+FOLLOWUP_COMMANDS = {
+    "node-dead-verify": [
+        {"cmd": "ping -c 3 -W 2 {node_ip} 2>&1 || echo PING_FAILED", "desc": "Network reachability (ICMP ping)"},
+        {"cmd": "ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes core@{node_ip} 'uptime' 2>&1 || echo SSH_UNREACHABLE", "desc": "SSH reachability check"},
+        {"cmd": "ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes core@{node_ip} 'systemctl is-active kubelet; systemctl status kubelet --no-pager -l 2>&1 | head -15' 2>&1 || echo SSH_CMD_FAILED", "desc": "Kubelet service status on the node"},
+        {"cmd": "ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes core@{node_ip} 'journalctl -u kubelet --since \"30 min ago\" --no-pager 2>&1 | tail -25' 2>&1 || echo SSH_CMD_FAILED", "desc": "Recent kubelet journal logs"},
+        {"cmd": "ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes core@{node_ip} 'df -h / /var /var/lib/containers 2>&1' 2>&1 || echo SSH_CMD_FAILED", "desc": "Disk usage on the node"},
+        {"cmd": "ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes core@{node_ip} 'dmesg -T 2>/dev/null | tail -25 || dmesg | tail -25' 2>&1 || echo SSH_CMD_FAILED", "desc": "Recent kernel messages (hardware errors, OOM, panic)"},
+    ],
+    "mco-drain-blocked": [
+        {"cmd": "oc get pdb -A --no-headers 2>&1", "desc": "PodDisruptionBudgets blocking drain"},
+        {"cmd": "oc get nodes --no-headers 2>&1 | grep SchedulingDisabled | awk '{print $1}'", "desc": "Nodes stuck in SchedulingDisabled"},
+        {"cmd": "stuck=$(oc get nodes --no-headers 2>&1 | grep SchedulingDisabled | head -1 | awk '{print $1}'); [ -n \"$stuck\" ] && oc get pods --field-selector spec.nodeName=$stuck -A --no-headers 2>&1 | grep -vE 'Completed|Running' | head -15 || echo '(no stuck nodes found)'", "desc": "Non-running pods on stuck node (blocking drain)"},
+        {"cmd": "oc get pods -A --no-headers 2>&1 | grep Terminating | head -10", "desc": "Pods stuck in Terminating state"},
+        {"cmd": "stuck=$(oc get nodes --no-headers 2>&1 | grep SchedulingDisabled | head -1 | awk '{print $1}'); [ -n \"$stuck\" ] && oc get pods --field-selector spec.nodeName=$stuck -A --no-headers 2>&1 | wc -l || echo '0'", "desc": "Total pods remaining on stuck node"},
+        {"cmd": "oc logs -n openshift-machine-config-operator $(oc get pods -n openshift-machine-config-operator --no-headers 2>/dev/null | grep machine-config-daemon | head -1 | awk '{print $1}') --tail=30 2>&1 | grep -iE 'error|fail|drain|timeout|evict' | head -10", "desc": "MCD error logs related to drain"},
+    ],
+    "virt-handler-errors-deep": [
+        {"cmd": "oc logs -n openshift-cnv $(oc get pods -n openshift-cnv -l kubevirt.io=virt-handler --no-headers -o name 2>/dev/null | head -1) --tail=100 2>&1 | grep -iE 'error|warn|fail|timeout|refused|tls|cert|oom' | head -25", "desc": "virt-handler error/warning log lines"},
+        {"cmd": "oc get pods -n openshift-cnv 2>&1 | grep -E 'virt-api|virt-controller' | head -5", "desc": "virt-api and virt-controller status"},
+        {"cmd": "oc get vmi -A --no-headers 2>&1 | awk '{print $4}' | sort | uniq -c | sort -rn | head -5", "desc": "VM count per node (top 5)"},
+        {"cmd": "oc get events -n openshift-cnv --sort-by='.lastTimestamp' 2>&1 | grep -iE 'error|fail|oom|kill' | tail -10", "desc": "Recent error events in CNV namespace"},
+        {"cmd": "oc get ds virt-handler -n openshift-cnv -o yaml 2>&1 | grep -A8 'resources:' | head -10", "desc": "virt-handler resource limits"},
+    ],
+}
+
+FOLLOWUP_ANALYSIS_RULES = {
+    "node-dead-verify": [
+        {"keywords": ["100% packet loss", "ping_failed", "ssh_unreachable"],
+         "conclusion": "Node is completely unreachable - ping and SSH both fail. Machine is powered off, has a network failure, or experienced a kernel panic.",
+         "confidence": "high",
+         "fix": "Access via BMC/IPMI: 1) ipmitool -I lanplus -H <bmc-ip> power status, 2) If powered on: check console for kernel panic (ipmitool sol activate), 3) If powered off: power on via BMC, 4) Check switch port for the node NIC"},
+        {"keywords": ["0 received", "ssh_unreachable"],
+         "conclusion": "Node does not respond to ping or SSH. Machine may be powered off or has a complete network failure.",
+         "confidence": "high",
+         "fix": "Access via BMC/IPMI console. Check if machine is powered on and if NIC link is up."},
+        {"keywords": ["ssh_unreachable", "bytes from"],
+         "conclusion": "Node responds to ping but SSH is down. OS kernel is running but sshd or userspace may have crashed (possible kernel panic with network stack still alive).",
+         "confidence": "high",
+         "fix": "Access via BMC/IPMI console (ipmitool sol activate). Check: systemctl status sshd, systemctl status kubelet, free -h, df -h"},
+        {"keywords": ["inactive", "dead"],
+         "conclusion": "Node is reachable but kubelet service is stopped/dead.",
+         "confidence": "high",
+         "fix": "Root cause is in kubelet journal logs above. Common causes: certificate expiry, disk full (/var at 100%), OOM-killed. Do NOT blindly restart kubelet until cause is identified."},
+        {"keywords": ["100%", "/var"],
+         "conclusion": "Node is reachable but /var filesystem is full. This caused kubelet to stop functioning.",
+         "confidence": "high",
+         "fix": "Free disk on /var: du -sh /var/lib/containers /var/lib/kubelet /var/log on the node. Likely culprits: container images, pod logs, kubelet pods directory."},
+        {"keywords": ["oom-killer", "out of memory", "killed process"],
+         "conclusion": "Kernel OOM killer fired on the node. Kubelet or another critical process was killed.",
+         "confidence": "high",
+         "fix": "Check dmesg output above for which process was killed. Reduce memory consumption or increase node RAM."},
+        {"keywords": ["panic", "bug:", "rip:", "call trace"],
+         "conclusion": "Node experienced a kernel panic or kernel bug.",
+         "confidence": "high",
+         "fix": "Check BMC event log for timing. If recurring: check for known kernel bugs, update RHCOS, or replace hardware. Single event: node may recover after reboot via BMC."},
+        {"keywords": ["hardware error", "mce:", "i/o error"],
+         "conclusion": "Node has hardware errors (MCE or I/O). Likely failing disk, memory DIMM, or CPU.",
+         "confidence": "high",
+         "fix": "Check BMC SEL log for hardware events. Replace faulty component. Cordon node first if it recovers."},
+        {"keywords": ["active", "running"],
+         "conclusion": "Node is reachable and kubelet reports active/running. The NotReady condition may be transient or caused by API server connectivity issues.",
+         "confidence": "medium",
+         "fix": "Check kubelet journal for errors related to API server communication. Also check if node certificates have expired: oc get csr | grep Pending"},
+    ],
+    "mco-drain-blocked": [
+        {"keywords": ["poddisruptionbudget", "pdb", "disruptionsallowed"],
+         "conclusion": "PodDisruptionBudget is preventing node drain. MCO cannot evict pods protected by PDB, so the MachineConfig update is stuck.",
+         "confidence": "high",
+         "fix": "Identify the blocking PDB from output above. Options: 1) Scale up the deployment so PDB allows disruption, 2) Temporarily relax the PDB minAvailable, 3) If safe, delete the PDB temporarily."},
+        {"keywords": ["terminating"],
+         "conclusion": "Pods stuck in Terminating state are blocking the node drain.",
+         "confidence": "high",
+         "fix": "Force-delete stuck pods: oc delete pod <pod> -n <ns> --grace-period=0 --force. Then drain will complete and MCO proceeds."},
+        {"keywords": ["(no stuck nodes found)", "0"],
+         "conclusion": "No nodes currently stuck in SchedulingDisabled. The MCO drain may have already completed or the timeout was transient.",
+         "confidence": "medium",
+         "fix": "Check if MCP is now progressing: oc get mcp. If still degraded, check MCO operator logs for the specific error."},
+        {"keywords": ["pending", "containercreating"],
+         "conclusion": "Pods on the stuck node cannot be rescheduled - other nodes may lack capacity or have taints/affinity constraints.",
+         "confidence": "medium",
+         "fix": "Check node capacity: oc adm top nodes. Ensure other nodes have room for the pods being drained."},
+    ],
+    "virt-handler-errors-deep": [
+        {"keywords": ["connection refused", "dial tcp", "connect:"],
+         "conclusion": "virt-handler cannot connect to virt-api or other KubeVirt services. Network or service issue.",
+         "confidence": "high",
+         "fix": "Check virt-api pods above. If not Running, restart: oc delete pod -n openshift-cnv -l kubevirt.io=virt-api. If Running, check network policies."},
+        {"keywords": ["tls", "certificate", "x509"],
+         "conclusion": "TLS/certificate error in virt-handler. Certificates may have expired or been rotated without virt-handler restart.",
+         "confidence": "high",
+         "fix": "Restart virt-handler pods: oc delete pods -n openshift-cnv -l kubevirt.io=virt-handler. If persists, check HCO operator and cert-manager."},
+        {"keywords": ["oomkilled", "oom", "killed"],
+         "conclusion": "virt-handler pods are being OOM-killed. Current memory limit is too low for the VM density on these nodes.",
+         "confidence": "high",
+         "fix": "Increase memory limit from resource limits shown above. With high VM density, 2-4Gi is recommended. See CNV-71448.",
+         "doc": "https://issues.redhat.com/browse/CNV-71448"},
+        {"keywords": ["timeout", "context deadline"],
+         "conclusion": "virt-handler experiencing timeouts communicating with KubeVirt control plane. Possible overload or network latency.",
+         "confidence": "medium",
+         "fix": "Check cluster network health and virt-api/virt-controller pod status. May resolve after reducing VM density."},
+    ],
+}
+
+
+def _extract_context_from_results(results):
+    """Extract additional context (like node_ip) from drilldown/investigation results."""
+    extra = {}
+    import re as _re
+    for r in results:
+        desc = r.get("description", "").lower()
+        output = r.get("output", "").strip()
+        if not output or output in ("(no output)", "(error: )"):
+            continue
+        if "node internal ip" in desc or "node ip" in desc:
+            ip_match = _re.search(r'(\d+\.\d+\.\d+\.\d+)', output)
+            if ip_match:
+                extra["node_ip"] = ip_match.group(1)
+        if "schedulingdisabled" in desc:
+            lines = output.strip().split('\n')
+            if lines and lines[0].strip():
+                extra["stuck_node"] = lines[0].strip().split()[0]
+    return extra
+
+
+def run_followup(followup_key, context, drilldown_results, ssh_command_func):
+    """Run level-3 followup commands after drilldown conclusion is known.
+    Only executes safe, read-only diagnostic commands.
+    Returns (followup_results, refined_conclusion_or_none).
+    """
+    import re as _re
+    commands = FOLLOWUP_COMMANDS.get(followup_key, [])
+    if not commands:
+        return [], None
+
+    enriched_ctx = dict(context)
+    enriched_ctx.update(_extract_context_from_results(drilldown_results))
+
+    if "node_ip" not in enriched_ctx and enriched_ctx.get("name"):
+        try:
+            ip_out = ssh_command_func(
+                f"oc get node {enriched_ctx['name']} -o wide 2>&1 | tail -1 | awk '{{print $6}}'",
+                timeout=8
+            )
+            if ip_out:
+                ip_match = _re.search(r'(\d+\.\d+\.\d+\.\d+)', ip_out.strip())
+                if ip_match:
+                    enriched_ctx["node_ip"] = ip_match.group(1)
+        except Exception:
+            pass
+
+    results = []
+    for cmd_info in commands:
+        cmd = cmd_info["cmd"]
+        for key, value in enriched_ctx.items():
+            cmd = cmd.replace("{" + key + "}", str(value))
+        if "{node_ip}" in cmd or "{stuck_node}" in cmd:
+            continue
+        try:
+            output = ssh_command_func(cmd, timeout=12)
+            if output:
+                output = output.strip()[:3000]
+            else:
+                output = "(no output)"
+        except Exception as e:
+            output = f"(error: {str(e)[:100]})"
+        results.append({
+            "description": cmd_info["desc"],
+            "command": cmd,
+            "output": output,
+        })
+
+    if not results:
+        return [], None
+
+    all_output = " ".join(r["output"] for r in results).lower()
+    analysis_rules = FOLLOWUP_ANALYSIS_RULES.get(followup_key, [])
+    best = None
+    for arule in analysis_rules:
+        kws = arule["keywords"]
+        if any(kw.lower() in all_output for kw in kws):
+            best = {
+                "conclusion": arule["conclusion"],
+                "confidence": arule.get("confidence", "medium"),
+                "fix": arule.get("fix", ""),
+                "doc": arule.get("doc", ""),
+            }
+            break
+
+    return results, best
+
+
+def run_drilldown(drilldown_key, context, ssh_command_func):
+    """Run second-level drill-down commands for a symptom-level root cause.
+    Returns (drilldown_results, conclusion_dict_or_none).
+    """
+    import re as _re
+    commands = DRILLDOWN_COMMANDS.get(drilldown_key, [])
+    if not commands:
+        return [], None
+
+    enriched_ctx = dict(context)
+    if "node_ip" not in enriched_ctx and enriched_ctx.get("name"):
+        try:
+            ip_out = ssh_command_func(
+                f"oc get node {enriched_ctx['name']} -o wide 2>&1 | tail -1 | awk '{{print $6}}'",
+                timeout=8
+            )
+            if ip_out:
+                ip_match = _re.search(r'(\d+\.\d+\.\d+\.\d+)', ip_out.strip())
+                if ip_match:
+                    enriched_ctx["node_ip"] = ip_match.group(1)
+        except Exception:
+            pass
+
+    results = []
+    for cmd_info in commands:
+        cmd = cmd_info["cmd"]
+        for key, value in enriched_ctx.items():
+            cmd = cmd.replace("{" + key + "}", str(value))
+        if "{node_ip}" in cmd:
+            continue
+        try:
+            output = ssh_command_func(cmd, timeout=15)
+            if output:
+                output = output.strip()[:3000]
+            else:
+                output = "(no output)"
+        except Exception as e:
+            output = f"(error: {str(e)[:100]})"
+        results.append({
+            "description": cmd_info["desc"],
+            "command": cmd,
+            "output": output,
+        })
+
+    all_output = " ".join(r["output"] for r in results).lower()
+    analysis_rules = DRILLDOWN_ANALYSIS_RULES.get(drilldown_key, [])
+    best_conclusion = None
+    for arule in analysis_rules:
+        kws = arule["keywords"]
+        if any(kw.lower() in all_output for kw in kws):
+            best_conclusion = {
+                "conclusion": arule["conclusion"],
+                "confidence": arule.get("confidence", "medium"),
+                "fix": arule.get("fix", ""),
+                "doc": arule.get("doc", ""),
+                "follow_drilldown": arule.get("follow_drilldown"),
+                "followup": arule.get("followup"),
+            }
+            break
+
+    return results, best_conclusion
+
 
 def investigate_issue(issue_type, context, ssh_command_func):
     """
@@ -1575,7 +1641,7 @@ def investigate_issue(issue_type, context, ssh_command_func):
         from knowledge_base import load_investigation_commands
     inv_commands = load_investigation_commands()
     results = []
-    commands = inv_commands.get(issue_type, INVESTIGATION_COMMANDS.get(issue_type, []))
+    commands = inv_commands.get(issue_type, [])
     
     for cmd_info in commands:
         cmd_template = cmd_info["cmd"]
@@ -1604,125 +1670,138 @@ def investigate_issue(issue_type, context, ssh_command_func):
     
     return results
 
+def _extract_vmi_count(investigation_results):
+    """Extract VMI count from investigation results for special rules."""
+    for r in investigation_results:
+        if "Total VMI" in r.get("description", ""):
+            try:
+                return int(r.get("output", "0").strip())
+            except (ValueError, AttributeError):
+                pass
+    return 0
+
+
+def _extract_max_memory_mi(investigation_results):
+    """Extract the maximum memory value in Mi from investigation output."""
+    import re as _re
+    max_mem = 0
+    for r in investigation_results:
+        output = r.get("output", "")
+        for match in _re.findall(r'(\d+)Mi', output):
+            val = int(match)
+            if val > max_mem:
+                max_mem = val
+    return max_mem
+
+
+def _evaluate_special(special_key, investigation_results):
+    """Evaluate special (non-keyword) conditions."""
+    if special_key == "vmi_count_gt_1000":
+        return _extract_vmi_count(investigation_results) > 1000
+    if special_key == "vmi_count_gt_500":
+        count = _extract_vmi_count(investigation_results)
+        return 500 < count <= 1000
+    if special_key == "virt_handler_memory_gt_800mi":
+        return _extract_max_memory_mi(investigation_results) > 800
+    return False
+
+
+def _rule_matches(rule, issue_type, all_output, investigation_results):
+    """Check if a single root cause rule matches the given context.
+
+    Rule schema:
+      issue_types      - list of issue types this rule applies to
+      keywords_all     - ALL must appear in output (AND)
+      keywords_any     - at least ONE must appear (OR)
+      extra_required   - additional keywords that ALL must appear (AND)
+      extra_required_any - at least ONE must appear (OR)
+      special          - non-keyword condition key (e.g. vmi_count_gt_1000)
+    """
+    if issue_type not in rule.get("issue_types", []):
+        return False
+
+    special = rule.get("special")
+    if special:
+        return _evaluate_special(special, investigation_results)
+
+    kw_all = rule.get("keywords_all", [])
+    if kw_all and not all(kw.lower() in all_output for kw in kw_all):
+        return False
+
+    kw_any = rule.get("keywords_any", [])
+    if kw_any and not any(kw.lower() in all_output for kw in kw_any):
+        return False
+
+    extra_req = rule.get("extra_required", [])
+    if extra_req and not all(kw.lower() in all_output for kw in extra_req):
+        return False
+
+    extra_req_any = rule.get("extra_required_any", [])
+    if extra_req_any and not any(kw.lower() in all_output for kw in extra_req_any):
+        return False
+
+    if not kw_all and not kw_any and not extra_req and not extra_req_any:
+        return False
+
+    return True
+
+
 def determine_root_cause(issue_type, investigation_results, failure_details):
+    """Analyze investigation results to determine the most likely root cause.
+
+    Loads rules from knowledge/root_cause_rules.json so the logic is
+    extensible without code changes.
+    Returns (root_cause, confidence, explanation, rule_key, matched_rule).
+    The last two are optional for backward compat - callers using 3-tuple
+    unpacking still work because extra values are silently ignored by
+    tuple assignment.
     """
-    Analyze investigation results to determine the most likely root cause.
-    Returns (root_cause, confidence, explanation).
-    """
-    # Combine all outputs for analysis
-    all_output = " ".join([r.get("output", "") for r in investigation_results]).lower()
-    
-    # Pattern matching for common root causes
+    from healthchecks.knowledge_base import (
+        load_root_cause_rules, update_root_cause_rule_matched,
+    )
+
+    all_output = " ".join(
+        [r.get("output", "") for r in investigation_results]
+    ).lower()
+
+    if failure_details:
+        if isinstance(failure_details, dict):
+            all_output += " " + " ".join(str(v) for v in failure_details.values()).lower()
+        elif isinstance(failure_details, list):
+            for fd in failure_details:
+                if isinstance(fd, dict):
+                    all_output += " " + " ".join(str(v) for v in fd.values()).lower()
+                else:
+                    all_output += " " + str(fd).lower()
+        else:
+            all_output += " " + str(failure_details).lower()
+
+    rules = load_root_cause_rules()
     root_causes = []
-    
-    if issue_type in ["pod-crashloop", "pod-unknown"]:
-        if "oomkilled" in all_output or "out of memory" in all_output:
-            root_causes.append(("OOM Kill", "high", "Pod was killed due to memory limits exceeded"))
-        if "crashloopbackoff" in all_output:
-            if "image" in all_output and ("pull" in all_output or "not found" in all_output):
-                root_causes.append(("Image Pull Error", "high", "Container image could not be pulled"))
-            elif "permission" in all_output or "denied" in all_output:
-                root_causes.append(("Permission Denied", "high", "Container lacks required permissions"))
-            else:
-                root_causes.append(("Application Crash", "medium", "Application inside container is crashing"))
-        if "containerstatusunknown" in all_output:
-            if "notready" in all_output or "schedulingdisabled" in all_output:
-                root_causes.append(("Node Issue", "high", "Node became unavailable or was cordoned"))
-            else:
-                root_causes.append(("Kubelet Communication Lost", "medium", "Kubelet lost connection to API server"))
-        if "pending" in all_output and "insufficient" in all_output:
-            root_causes.append(("Insufficient Resources", "high", "Cluster lacks resources to schedule pod"))
-    
-    elif issue_type == "virt-handler-memory":
-        if "oom" in all_output or "killed" in all_output:
-            root_causes.append(("Memory Leak", "high", "virt-handler experiencing memory leak under load"))
-        vmi_count = 0
-        for r in investigation_results:
-            if "Total VMI" in r.get("description", ""):
-                try:
-                    vmi_count = int(r.get("output", "0").strip())
-                except:
-                    pass
-        if vmi_count > 1000:
-            root_causes.append(("High VM Density", "high", f"Running {vmi_count} VMs - high memory usage expected"))
-        elif vmi_count > 500:
-            root_causes.append(("Moderate VM Load", "medium", f"Running {vmi_count} VMs - consider spreading load"))
-    
-    elif issue_type == "volumesnapshot":
-        if "pending" in all_output:
-            root_causes.append(("Snapshot Pending", "medium", "Snapshot waiting for CSI driver"))
-        if "not found" in all_output or "missing" in all_output:
-            root_causes.append(("Missing Source", "high", "Source PVC no longer exists"))
-        if "error" in all_output and "csi" in all_output:
-            root_causes.append(("CSI Driver Error", "high", "CSI driver failed to create snapshot"))
-    
-    elif issue_type == "noobaa":
-        if "containerstatusunknown" in all_output:
-            root_causes.append(("Node Failure", "high", "Node hosting NooBaa became unavailable"))
-        if "pending" in all_output:
-            root_causes.append(("Storage Issue", "medium", "NooBaa waiting for storage resources"))
-    
-    elif issue_type == "metal3":
-        if "service" in all_output and ("unavailable" in all_output or "error" in all_output):
-            root_causes.append(("Service Unavailable", "high", "metal3-image-customization-service not reachable"))
-        if "init" in all_output and "crash" in all_output:
-            root_causes.append(("Init Container Failure", "high", "Init container failing to complete"))
-    
-    elif issue_type == "migration":
-        if "timeout" in all_output or "stuck" in all_output:
-            root_causes.append(("Migration Timeout", "high", "Migration exceeded time limit"))
-        if "bandwidth" in all_output or "network" in all_output:
-            root_causes.append(("Network Bandwidth", "medium", "Network bandwidth limiting migration speed"))
-        if "cpu" in all_output and "mismatch" in all_output:
-            root_causes.append(("CPU Incompatibility", "high", "CPU features mismatch between nodes"))
-    
-    elif issue_type in ["operator-degraded", "operator-unavailable"]:
-        # MCO-specific patterns
-        if "machineconfigpool" in all_output or "machine-config" in all_output or "mcp" in all_output:
-            if "degraded" in all_output and ("worker" in all_output or "master" in all_output):
-                root_causes.append(("MachineConfigPool Degraded", "high", "MachineConfigPool nodes failed to apply updated MachineConfig — check 'oc get mcp' and MCD logs on degraded nodes"))
-            if "context deadline" in all_output or "timeout" in all_output:
-                root_causes.append(("MachineConfig Apply Timeout", "high", "MachineConfig application timed out during node drain or reboot — nodes may be stuck in SchedulingDisabled"))
-            if "syncRequiredMachineConfigPools" in all_output.replace(" ", ""):
-                root_causes.append(("MCO Sync Failure", "high", "MCO failed to sync required MachineConfigPools — check for incompatible custom MachineConfigs"))
-        if "crashloopbackoff" in all_output:
-            root_causes.append(("Operator Pod CrashLoop", "high", "Pods backing the operator are crash-looping"))
-        if "failed to resync" in all_output:
-            root_causes.append(("Operator Resync Failed", "high", "Operator failed to resync to target version — may need manual intervention"))
-        if "progressing" in all_output and "false" in all_output and "degraded" in all_output and "true" in all_output:
-            root_causes.append(("Operator Stuck Degraded", "high", "Operator is degraded and not progressing — manual investigation required"))
-        if "error" in all_output and "reconcil" in all_output:
-            root_causes.append(("Reconciliation Error", "high", "Operator hit an error during reconciliation"))
-        if "unavailable" in all_output or "available.*false" in all_output:
-            root_causes.append(("Operator Unavailable", "high", "Cluster operator core functionality is not working"))
-        if "pending" in all_output and "csr" in all_output:
-            root_causes.append(("Pending CSRs", "medium", "Certificate Signing Requests are pending — approve them: oc get csr | grep Pending"))
-    
-    elif issue_type == "node":
-        if "notready" in all_output.replace(" ", ""):
-            root_causes.append(("Node Not Ready", "high", "Node is in NotReady state"))
-        if "disk" in all_output and "pressure" in all_output:
-            root_causes.append(("Disk Pressure", "high", "Node is experiencing disk pressure"))
-        if "memory" in all_output and "pressure" in all_output:
-            root_causes.append(("Memory Pressure", "high", "Node is experiencing memory pressure"))
-        if "schedulingdisabled" in all_output:
-            root_causes.append(("Node Cordoned", "medium", "Node has been cordoned (SchedulingDisabled)"))
-    
-    elif issue_type == "alert":
-        if "critical" in all_output:
-            root_causes.append(("Critical Alerts", "high", "Critical alerts are firing in the cluster"))
-        if "warning" in all_output:
-            root_causes.append(("Warning Alerts", "medium", "Warning alerts indicate potential issues"))
-    
-    # Default if no specific cause found
+
+    for rule_key, rule in rules.items():
+        if _rule_matches(rule, issue_type, all_output, investigation_results):
+            root_causes.append((
+                rule["cause"],
+                rule.get("confidence", "medium"),
+                rule.get("explanation", ""),
+                rule_key,
+                rule,
+            ))
+
     if not root_causes:
-        root_causes.append(("Unknown", "low", "Further manual investigation required"))
-    
-    # Return the highest confidence root cause
+        return ("Unknown", "low", "Further manual investigation required", None, None)
+
     confidence_order = {"high": 0, "medium": 1, "low": 2}
     root_causes.sort(key=lambda x: confidence_order.get(x[1], 3))
-    
-    return root_causes[0]
+
+    best = root_causes[0]
+    try:
+        update_root_cause_rule_matched(best[3])
+    except Exception:
+        pass
+
+    return (best[0], best[1], best[2], best[3], best[4])
 
 def parse_version(version_str):
     """Parse version string to comparable tuple"""
@@ -2218,9 +2297,11 @@ def run_deep_investigation(analysis, ssh_command_func, max_unique_types=10):
         
         elif failure_type == "csi":
             inv_type = "csi"
-            if isinstance(details, list) and details:
+            if isinstance(details, dict):
+                context = {"pod": details.get("pod", details.get("name", "")), "ns": details.get("ns", "")}
+            elif isinstance(details, list) and details:
                 first = details[0] if isinstance(details[0], dict) else {}
-                context = {"pod": first.get("name", ""), "ns": first.get("ns", "")}
+                context = {"pod": first.get("pod", first.get("name", "")), "ns": first.get("ns", "")}
             else:
                 context = {"pod": "", "ns": ""}
         
@@ -2275,49 +2356,145 @@ def run_deep_investigation(analysis, ssh_command_func, max_unique_types=10):
     print(f"        Found {unique_symptoms} unique issue types across {total_issues} issues", flush=True)
     print(f"        Investigating ONE representative per type (saves {total_issues - unique_symptoms} duplicate investigations)", flush=True)
     
-    # Step 2: For each symptom group, investigate only the first (representative) issue
-    investigation_count = 0
-    symptoms_investigated = 0
-    
-    for symptom_key, items in list(symptom_groups.items())[:max_unique_types]:
-        symptoms_investigated += 1
-        
-        # Get the first item as representative
+    # Step 2: Investigate all symptom groups in parallel
+    try:
+        from healthchecks.ai_analysis import ai_investigate
+    except ImportError:
+        from ai_analysis import ai_investigate
+
+    import concurrent.futures
+    import time as _time
+
+    groups_to_investigate = list(symptom_groups.items())[:max_unique_types]
+
+    def _investigate_one(idx, symptom_key, items):
+        """Investigate a single symptom group. Returns (symptom_key, items) with results attached."""
+        tag = f"[{idx+1}/{len(groups_to_investigate)}]"
         representative = items[0]
         inv_type, context, failure_type, details = get_inv_info(representative)
-        
-        print(f"        [{symptoms_investigated}/{min(unique_symptoms, max_unique_types)}] Investigating: {symptom_key[:50]}... ({len(items)} similar issues)", flush=True)
-        
-        # Run investigation on representative
+
+        print(f"        {tag} Investigating: {symptom_key[:50]}... ({len(items)} similar)", flush=True)
+
         investigation_results = investigate_issue(inv_type, context, ssh_command_func)
-        
-        if investigation_results:
-            investigation_count += 1
-            
-            # Determine root cause from investigation
-            root_cause, confidence, explanation = determine_root_cause(
-                inv_type, investigation_results, details
-            )
-            
-            # Generate unique ID for this symptom group
-            inv_id = hashlib.md5(f"{symptom_key}".encode()).hexdigest()[:8]
-            
-            # Apply results to ALL items in this symptom group
-            for item in items:
-                item["investigation"] = investigation_results
-                item["determined_cause"] = {
-                    "cause": root_cause,
-                    "confidence": confidence,
-                    "explanation": explanation,
-                    "investigation_id": inv_id,
-                    "shared_with": len(items) - 1  # Number of other issues sharing this investigation
-                }
-    
+        if not investigation_results:
+            return symptom_key, items
+
+        rc_tuple = determine_root_cause(inv_type, investigation_results, details)
+        root_cause, confidence, explanation = rc_tuple[0], rc_tuple[1], rc_tuple[2]
+        matched_rule = rc_tuple[4] if len(rc_tuple) > 4 else None
+
+        inv_id = hashlib.md5(f"{symptom_key}".encode()).hexdigest()[:8]
+        drilldown_results = []
+        drilldown_conclusion = None
+        followup_results = []
+        followup_conclusion = None
+        next_steps = []
+
+        if matched_rule and matched_rule.get("is_symptom") and matched_rule.get("drilldown"):
+            drilldown_key = matched_rule["drilldown"]
+            print(f"        {tag} ↳ Symptom, drilling down: {drilldown_key}", flush=True)
+
+            dd_results, dd_conclusion = run_drilldown(drilldown_key, context, ssh_command_func)
+            drilldown_results = dd_results
+
+            if dd_conclusion:
+                drilldown_conclusion = dd_conclusion
+                root_cause = dd_conclusion["conclusion"]
+                confidence = dd_conclusion["confidence"]
+                explanation = dd_conclusion.get("fix", explanation)
+                print(f"        {tag} ✓ Drilldown: {root_cause[:60]}", flush=True)
+
+                follow = dd_conclusion.get("follow_drilldown")
+                if follow and follow != drilldown_key:
+                    dd2_results, dd2_conclusion = run_drilldown(follow, context, ssh_command_func)
+                    drilldown_results.extend(dd2_results)
+                    if dd2_conclusion:
+                        root_cause = dd2_conclusion["conclusion"]
+                        confidence = dd2_conclusion["confidence"]
+                        explanation = dd2_conclusion.get("fix", explanation)
+                        drilldown_conclusion = dd2_conclusion
+            else:
+                print(f"        {tag} ⚠ Drilldown inconclusive", flush=True)
+
+            next_steps = matched_rule.get("next_steps", [])
+
+        issue_obj = representative.get("matched_issue", {})
+        inv_cmds = issue_obj.get("investigation_commands", [])
+        jira_refs = issue_obj.get("jira", [])
+        print(f"        {tag} ↳ AI investigating...", flush=True)
+        fu_results, fu_conclusion = ai_investigate(
+            issue_title=issue_obj.get("title", symptom_key),
+            issue_desc=issue_obj.get("description", ""),
+            failure=representative["failure"],
+            investigation_results=investigation_results,
+            drilldown_results=drilldown_results,
+            drilldown_conclusion=drilldown_conclusion,
+            ssh_command_func=ssh_command_func,
+            matched_inv_commands=inv_cmds if inv_cmds else None,
+            jira_refs=jira_refs if jira_refs else None,
+        )
+        followup_results = fu_results
+        if fu_conclusion:
+            followup_conclusion = fu_conclusion
+            root_cause = fu_conclusion["conclusion"]
+            confidence = fu_conclusion["confidence"]
+            explanation = fu_conclusion.get("fix", explanation)
+            print(f"        {tag} ✓ AI verified: {root_cause[:70]}", flush=True)
+            if fu_conclusion.get("needs_manual"):
+                next_steps = [fu_conclusion["needs_manual"]]
+        elif fu_results:
+            print(f"        {tag} ✓ AI collected {len(fu_results)} checks", flush=True)
+        else:
+            print(f"        {tag} ⚠ AI skipped (no API key)", flush=True)
+
+        for item in items:
+            item["investigation"] = investigation_results
+            item["determined_cause"] = {
+                "cause": root_cause,
+                "confidence": confidence,
+                "explanation": explanation,
+                "investigation_id": inv_id,
+                "shared_with": len(items) - 1,
+            }
+            if drilldown_results:
+                item["drilldown"] = {"results": drilldown_results, "conclusion": drilldown_conclusion}
+            if followup_results:
+                item["followup"] = {"results": followup_results, "conclusion": followup_conclusion}
+            if next_steps:
+                item["determined_cause"]["next_steps"] = next_steps
+            if followup_conclusion and followup_conclusion.get("doc"):
+                item["determined_cause"]["doc_url"] = followup_conclusion["doc"]
+            elif drilldown_conclusion and drilldown_conclusion.get("doc"):
+                item["determined_cause"]["doc_url"] = drilldown_conclusion["doc"]
+
+        return symptom_key, items
+
+    # Run all investigations in parallel (max 4 concurrent to avoid SSH/API overload)
+    t0 = _time.time()
+    max_workers = min(4, len(groups_to_investigate))
+    print(f"        ⚡ Running {len(groups_to_investigate)} investigations in parallel (max {max_workers} workers)", flush=True)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_investigate_one, idx, sk, items): sk
+            for idx, (sk, items) in enumerate(groups_to_investigate)
+        }
+        investigation_count = 0
+        for future in concurrent.futures.as_completed(futures):
+            sk = futures[future]
+            try:
+                _, result_items = future.result(timeout=480)
+                if result_items and result_items[0].get("investigation"):
+                    investigation_count += 1
+            except Exception as exc:
+                print(f"        ⚠ Investigation failed for {sk[:40]}: {exc}", flush=True)
+
+    elapsed = _time.time() - t0
     if unique_symptoms > max_unique_types:
         print(f"        (Skipped {unique_symptoms - max_unique_types} additional issue types)", flush=True)
-    
-    print(f"        Deep investigation complete: {investigation_count} unique investigations", flush=True)
-    
+
+    print(f"        Deep investigation complete: {investigation_count} investigations in {elapsed:.0f}s", flush=True)
+
     return analysis
 
 def generate_rca_html(analysis, cluster_version="", show_investigation=True, email_data=None):
@@ -2354,6 +2531,10 @@ def generate_rca_html(analysis, cluster_version="", show_investigation=True, ema
             })
         if item.get("determined_cause"):
             grouped[title]["determined_causes"].append(item["determined_cause"])
+        if item.get("drilldown"):
+            grouped[title]["drilldown"] = item["drilldown"]
+        if item.get("followup"):
+            grouped[title]["followup"] = item["followup"]
     
     # Collect all Jira keys and check their status
     all_jira_keys = []
@@ -2416,29 +2597,86 @@ def generate_rca_html(analysis, cluster_version="", show_investigation=True, ema
             </div>
         '''
     
-    # Build quick action summary
-    action_items = []
+    # Executive Summary Table
+    exec_rows = []
     for title, gdata in grouped.items():
         causes = gdata.get("determined_causes", [])
-        if causes:
-            best = causes[0]
-            action_items.append(f"<strong>{best['cause']}</strong> — {best['explanation']}")
+        drilldown = gdata.get("drilldown")
+        followup = gdata.get("followup")
+        best = causes[0] if causes else None
+        num_affected = len(gdata["failures"])
+
+        if best:
+            cause_text = best["cause"]
+            conf = best["confidence"]
+            has_fix = bool(drilldown and drilldown.get("conclusion", {}) and drilldown["conclusion"].get("fix"))
+            has_dd = bool(drilldown and drilldown.get("results"))
+            has_fu = bool(followup and followup.get("results"))
+            has_ns = bool(best.get("next_steps"))
+            has_doc = bool(best.get("doc_url") or (drilldown and drilldown.get("conclusion", {}) and drilldown["conclusion"].get("doc")))
         else:
-            action_items.append(f"<strong>{title}</strong> — investigation pending")
-    
-    if action_items:
-        html += '''
-            <div style="margin-bottom:20px;padding:16px;background:linear-gradient(135deg, #1a0a0a 0%, #0d1117 100%);border:1px solid #F2495C;border-radius:8px;">
-                <div style="color:#F2495C;font-weight:700;font-size:14px;margin-bottom:10px;">⚡ Action Required</div>
-                <ol style="color:#e6edf3;font-size:13px;margin-left:18px;line-height:2;">
-        '''
-        for item in action_items:
-            html += f'<li>{item}</li>'
-        html += '''
-                </ol>
+            cause_text = "Investigation pending"
+            conf = "low"
+            has_fix = False
+            has_dd = False
+            has_fu = False
+            has_ns = False
+            has_doc = False
+
+        conf_color = "#73BF69" if conf == "high" else "#FF9830" if conf == "medium" else "#8b949e"
+        check = '<span style="color:#73BF69;">&#10003;</span>'
+        dash = '<span style="color:#30363d;">-</span>'
+
+        exec_rows.append(f'''
+            <tr style="border-bottom:1px solid #21262d;">
+                <td style="padding:10px 12px;color:#e6edf3;font-weight:600;font-size:12px;max-width:180px;">{title}</td>
+                <td style="padding:10px 8px;text-align:center;"><span style="color:#c9d1d9;font-size:12px;">{num_affected}</span></td>
+                <td style="padding:10px 12px;color:#c9d1d9;font-size:11px;max-width:280px;">{cause_text}</td>
+                <td style="padding:10px 8px;text-align:center;"><span style="background:{conf_color}22;color:{conf_color};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;text-transform:uppercase;">{conf}</span></td>
+                <td style="padding:10px 8px;text-align:center;">{check if has_dd else dash}</td>
+                <td style="padding:10px 8px;text-align:center;">{check if has_fu else dash}</td>
+                <td style="padding:10px 8px;text-align:center;">{check if has_fix else dash}</td>
+                <td style="padding:10px 8px;text-align:center;">{check if has_doc else dash}</td>
+            </tr>
+        ''')
+
+    if exec_rows:
+        total_issues = sum(len(g["failures"]) for g in grouped.values())
+        total_with_rc = sum(1 for g in grouped.values() if g.get("determined_causes") and g["determined_causes"][0].get("confidence") in ("high", "medium"))
+        total_cats = len(grouped)
+
+        html += f'''
+            <div style="margin-bottom:24px;padding:18px;background:linear-gradient(135deg, #0d1117 0%, #161b22 100%);border:1px solid #30363d;border-radius:10px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                    <div style="color:#58a6ff;font-weight:700;font-size:14px;">📊 Executive RCA Summary</div>
+                    <div style="display:flex;gap:12px;">
+                        <span style="color:#8b949e;font-size:11px;">{total_cats} categories</span>
+                        <span style="color:#8b949e;font-size:11px;">{total_issues} total issues</span>
+                        <span style="color:#73BF69;font-size:11px;font-weight:600;">{total_with_rc}/{total_cats} root-caused</span>
+                    </div>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;font-family:'JetBrains Mono',Monaco,monospace;">
+                        <thead>
+                            <tr style="border-bottom:2px solid #30363d;">
+                                <th style="padding:8px 12px;text-align:left;color:#8b949e;font-size:10px;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;">Issue</th>
+                                <th style="padding:8px 8px;text-align:center;color:#8b949e;font-size:10px;text-transform:uppercase;font-weight:600;">Affected</th>
+                                <th style="padding:8px 12px;text-align:left;color:#8b949e;font-size:10px;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;">Root Cause</th>
+                                <th style="padding:8px 8px;text-align:center;color:#8b949e;font-size:10px;text-transform:uppercase;font-weight:600;">Confidence</th>
+                                <th style="padding:8px 8px;text-align:center;color:#8b949e;font-size:10px;text-transform:uppercase;font-weight:600;" title="Deep Drill-Down Performed">Drill</th>
+                                <th style="padding:8px 8px;text-align:center;color:#8b949e;font-size:10px;text-transform:uppercase;font-weight:600;" title="AI Investigation (auto-executed diagnostics)">AI</th>
+                                <th style="padding:8px 8px;text-align:center;color:#8b949e;font-size:10px;text-transform:uppercase;font-weight:600;" title="Fix Instructions Provided">Fix</th>
+                                <th style="padding:8px 8px;text-align:center;color:#8b949e;font-size:10px;text-transform:uppercase;font-weight:600;" title="Red Hat Documentation Linked">Docs</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {"".join(exec_rows)}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         '''
-    
+
     for title, data in grouped.items():
         issue = data["issue"]
         failures = data["failures"]
@@ -2610,7 +2848,7 @@ def generate_rca_html(analysis, cluster_version="", show_investigation=True, ema
                         <div style="color:#fff;font-size:15px;font-weight:600;margin-bottom:4px;">🎯 {best_cause["cause"]}</div>
                         <div style="color:#8b949e;font-size:12px;">{best_cause["explanation"]}</div>
                     </div>
-                    <details style="margin-top:10px;" open>
+                    <details style="margin-top:10px;">
                         <summary style="cursor:pointer;color:#58a6ff;font-size:13px;font-weight:600;padding:8px 0;">
                             📋 Detailed Investigation ({len(investigations)} diagnostic commands executed)
                         </summary>
@@ -2654,6 +2892,159 @@ def generate_rca_html(analysis, cluster_version="", show_investigation=True, ema
             html += '''
                         </div>
                     </details>
+            '''
+            
+            drilldown = data.get("drilldown")
+            if drilldown and drilldown.get("results"):
+                dd_results = drilldown["results"]
+                dd_conclusion = drilldown.get("conclusion")
+                
+                html += f'''
+                    <details style="margin-top:12px;">
+                        <summary style="cursor:pointer;color:#B877D9;font-size:13px;font-weight:600;padding:8px 0;">
+                            🔬 Deep Drill-Down ({len(dd_results)} additional diagnostic commands)
+                        </summary>
+                        <div style="margin-top:12px;max-height:800px;overflow-y:auto;">
+                '''
+                
+                if dd_conclusion:
+                    cc = "#73BF69" if dd_conclusion["confidence"] == "high" else "#FF9830"
+                    html += f'''
+                            <div style="background:#0a1a0a;border:1px solid {cc};border-radius:6px;padding:14px;margin-bottom:14px;">
+                                <div style="color:{cc};font-weight:700;font-size:14px;margin-bottom:6px;">✅ Root Cause Identified</div>
+                                <div style="color:#e6edf3;font-size:13px;margin-bottom:8px;">{dd_conclusion["conclusion"]}</div>
+                    '''
+                    if dd_conclusion.get("fix"):
+                        fix_escaped = str(dd_conclusion["fix"]).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                        html += f'''
+                                <div style="color:#58a6ff;font-size:12px;margin-bottom:4px;">🔧 <strong>How to fix:</strong></div>
+                                <div style="color:#c9d1d9;font-size:12px;padding:8px 12px;background:#161b22;border-radius:4px;">{fix_escaped}</div>
+                        '''
+                    if dd_conclusion.get("doc"):
+                        html += f'''
+                                <div style="margin-top:8px;">
+                                    <a href="{dd_conclusion["doc"]}" target="_blank" style="color:#58a6ff;font-size:11px;">📖 Red Hat Documentation →</a>
+                                </div>
+                        '''
+                    html += '''
+                            </div>
+                    '''
+                
+                for r in dd_results:
+                    desc = r.get("description", "")
+                    cmd = r.get("command", "")
+                    output = r.get("output", "")
+                    output_escaped = str(output).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")[:2000]
+                    if output_escaped.strip() in ("(no output)", "(error: )", ""):
+                        continue
+                    html += f'''
+                            <div style="margin-bottom:12px;">
+                                <div style="color:#B877D9;font-size:12px;font-weight:600;margin-bottom:4px;">📌 {desc}</div>
+                                <code style="display:block;background:#161b22;padding:6px 10px;border-radius:4px;font-size:11px;color:#8b949e;margin-bottom:4px;word-break:break-all;">$ {cmd}</code>
+                                <pre style="background:#0a0e14;padding:10px 12px;border-radius:4px;font-size:11px;color:#e6edf3;margin:0;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;line-height:1.5;">{output_escaped}</pre>
+                            </div>
+                    '''
+                
+                html += '''
+                        </div>
+                    </details>
+                '''
+            
+            followup = data.get("followup")
+            if followup and followup.get("results"):
+                fu_results = followup["results"]
+                fu_conclusion = followup.get("conclusion")
+                
+                html += f'''
+                    <details style="margin-top:12px;">
+                        <summary style="cursor:pointer;color:#39D353;font-size:13px;font-weight:600;padding:8px 0;">
+                            🤖 AI Deep Investigation ({len(fu_results)} diagnostic checks auto-executed)
+                        </summary>
+                        <div style="margin-top:12px;max-height:800px;overflow-y:auto;">
+                '''
+                
+                if fu_conclusion:
+                    fcc = "#73BF69" if fu_conclusion["confidence"] == "high" else "#FF9830"
+                    html += f'''
+                            <div style="background:#0a1a0a;border:1px solid {fcc};border-radius:6px;padding:14px;margin-bottom:14px;">
+                                <div style="color:{fcc};font-weight:700;font-size:14px;margin-bottom:6px;">🔒 AI-Verified Root Cause</div>
+                                <div style="color:#e6edf3;font-size:13px;margin-bottom:8px;">{fu_conclusion["conclusion"]}</div>
+                    '''
+                    if fu_conclusion.get("fix"):
+                        fix_esc = str(fu_conclusion["fix"]).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                        html += f'''
+                                <div style="color:#58a6ff;font-size:12px;margin-bottom:4px;">🔧 <strong>How to fix:</strong></div>
+                                <div style="color:#c9d1d9;font-size:12px;padding:8px 12px;background:#161b22;border-radius:4px;">{fix_esc}</div>
+                        '''
+                    if fu_conclusion.get("needs_manual"):
+                        manual_esc = str(fu_conclusion["needs_manual"]).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                        html += f'''
+                                <div style="margin-top:8px;color:#FF9830;font-size:12px;">
+                                    ⚠️ <strong>Manual steps needed:</strong> {manual_esc}
+                                </div>
+                        '''
+                    if fu_conclusion.get("doc"):
+                        html += f'''
+                                <div style="margin-top:8px;">
+                                    <a href="{fu_conclusion["doc"]}" target="_blank" style="color:#58a6ff;font-size:11px;">📖 Red Hat Documentation →</a>
+                                </div>
+                        '''
+                    html += '''
+                            </div>
+                    '''
+                
+                for r in fu_results:
+                    desc = r.get("description", "")
+                    cmd = r.get("command", "")
+                    output = r.get("output", "")
+                    output_escaped = str(output).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")[:3000]
+                    if output_escaped.strip() in ("(no output)", "(error: )", ""):
+                        continue
+                    html += f'''
+                            <div style="margin-bottom:12px;">
+                                <div style="color:#39D353;font-size:12px;font-weight:600;margin-bottom:4px;">🤖 {desc}</div>
+                                <code style="display:block;background:#161b22;padding:6px 10px;border-radius:4px;font-size:11px;color:#8b949e;margin-bottom:4px;word-break:break-all;">$ {cmd}</code>
+                                <pre style="background:#0a0e14;padding:10px 12px;border-radius:4px;font-size:11px;color:#e6edf3;margin:0;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;line-height:1.5;">{output_escaped}</pre>
+                            </div>
+                    '''
+                
+                html += '''
+                        </div>
+                    </details>
+                '''
+            
+            next_steps = best_cause.get("next_steps", [])
+            doc_url = best_cause.get("doc_url", "")
+            if next_steps or doc_url:
+                html += '''
+                    <div style="margin-top:14px;padding:14px;background:linear-gradient(135deg, #1a1a0a 0%, #0d1117 100%);border:1px solid #FF9830;border-radius:8px;">
+                        <div style="color:#FF9830;font-weight:700;font-size:13px;margin-bottom:10px;">🧪 Recommended Next Steps (if cause still unclear)</div>
+                        <ol style="color:#c9d1d9;font-size:12px;margin-left:18px;line-height:1.8;">
+                '''
+                for step in next_steps:
+                    step_escaped = str(step).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    if "http" in step:
+                        import re as _re
+                        step_escaped = _re.sub(
+                            r'(https?://[^\s,)]+)',
+                            r'<a href="\1" target="_blank" style="color:#58a6ff;">\1</a>',
+                            step_escaped
+                        )
+                    html += f'<li>{step_escaped}</li>'
+                html += '''
+                        </ol>
+                '''
+                if doc_url:
+                    html += f'''
+                        <div style="margin-top:8px;">
+                            <a href="{doc_url}" target="_blank" style="color:#58a6ff;font-size:12px;">📖 Red Hat Knowledge Base Article →</a>
+                        </div>
+                    '''
+                html += '''
+                    </div>
+                '''
+            
+            html += '''
                 </div>
             '''
         
@@ -2686,64 +3077,63 @@ def get_ssh_client():
     Get or create SSH client.
     Connects directly to the target host that has oc access.
     Raises SSHConnectionError with detailed info on failure.
+    Thread-safe: uses lock to prevent duplicate connection setup.
     """
     global ssh_client
 
-    if ssh_client is not None:
-        # Quick liveness check – if the transport died, reconnect
-        transport = ssh_client.get_transport()
-        if transport and transport.is_active():
-            return ssh_client
-        # Transport is dead; reset
-        ssh_client = None
+    with _ssh_lock:
+        if ssh_client is not None:
+            transport = ssh_client.get_transport()
+            if transport and transport.is_active():
+                return ssh_client
+            ssh_client = None
 
-    # Validate configuration before attempting connection
-    if not HOST:
-        raise SSHConnectionError(
-            "No target host configured. Set RH_LAB_HOST environment variable or pass --server <host>.",
-            host=HOST, user=USER, key_path=KEY_PATH,
-        )
-    if not KEY_PATH:
-        raise SSHConnectionError(
-            "No SSH key path configured. Set SSH_KEY_PATH environment variable.",
-            host=HOST, user=USER, key_path=KEY_PATH,
-        )
-    if not os.path.isfile(KEY_PATH):
-        raise SSHConnectionError(
-            f"SSH key file not found: {KEY_PATH}",
-            host=HOST, user=USER, key_path=KEY_PATH,
-        )
+        if not HOST:
+            raise SSHConnectionError(
+                "No target host configured. Set RH_LAB_HOST environment variable or pass --server <host>.",
+                host=HOST, user=USER, key_path=KEY_PATH,
+            )
+        if not KEY_PATH:
+            raise SSHConnectionError(
+                "No SSH key path configured. Set SSH_KEY_PATH environment variable.",
+                host=HOST, user=USER, key_path=KEY_PATH,
+            )
+        if not os.path.isfile(KEY_PATH):
+            raise SSHConnectionError(
+                f"SSH key file not found: {KEY_PATH}",
+                host=HOST, user=USER, key_path=KEY_PATH,
+            )
 
-    ssh_client = paramiko.SSHClient()
-    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    try:
-        ssh_client.connect(HOST, username=USER, key_filename=KEY_PATH, timeout=10)
-    except paramiko.AuthenticationException as e:
-        ssh_client = None
-        raise SSHConnectionError(
-            f"SSH authentication failed for {USER}@{HOST} (key: {KEY_PATH}): {e}",
-            host=HOST, user=USER, key_path=KEY_PATH, original_error=e,
-        )
-    except paramiko.SSHException as e:
-        ssh_client = None
-        raise SSHConnectionError(
-            f"SSH protocol error connecting to {USER}@{HOST}: {e}",
-            host=HOST, user=USER, key_path=KEY_PATH, original_error=e,
-        )
-    except OSError as e:
-        ssh_client = None
-        raise SSHConnectionError(
-            f"Cannot connect to {HOST} — host unreachable or connection refused: {e}",
-            host=HOST, user=USER, key_path=KEY_PATH, original_error=e,
-        )
-    except Exception as e:
-        ssh_client = None
-        raise SSHConnectionError(
-            f"SSH connection failed to {USER}@{HOST} (key: {KEY_PATH}): {e}",
-            host=HOST, user=USER, key_path=KEY_PATH, original_error=e,
-        )
+        ssh_client = paramiko.SSHClient()
+        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            ssh_client.connect(HOST, username=USER, key_filename=KEY_PATH, timeout=10)
+        except paramiko.AuthenticationException as e:
+            ssh_client = None
+            raise SSHConnectionError(
+                f"SSH authentication failed for {USER}@{HOST} (key: {KEY_PATH}): {e}",
+                host=HOST, user=USER, key_path=KEY_PATH, original_error=e,
+            )
+        except paramiko.SSHException as e:
+            ssh_client = None
+            raise SSHConnectionError(
+                f"SSH protocol error connecting to {USER}@{HOST}: {e}",
+                host=HOST, user=USER, key_path=KEY_PATH, original_error=e,
+            )
+        except OSError as e:
+            ssh_client = None
+            raise SSHConnectionError(
+                f"Cannot connect to {HOST} -- host unreachable or connection refused: {e}",
+                host=HOST, user=USER, key_path=KEY_PATH, original_error=e,
+            )
+        except Exception as e:
+            ssh_client = None
+            raise SSHConnectionError(
+                f"SSH connection failed to {USER}@{HOST} (key: {KEY_PATH}): {e}",
+                host=HOST, user=USER, key_path=KEY_PATH, original_error=e,
+            )
 
-    return ssh_client
+        return ssh_client
 
 def ssh_command(command, timeout=30):
     """Execute command via SSH. Raises SSHConnectionError if connection fails."""
@@ -2751,9 +3141,12 @@ def ssh_command(command, timeout=30):
     try:
         client = get_ssh_client()
         stdin, stdout, stderr = client.exec_command(full_cmd, timeout=timeout)
-        return stdout.read().decode().strip()
+        channel = stdout.channel
+        channel.settimeout(timeout)
+        output = stdout.read().decode().strip()
+        return output
     except SSHConnectionError:
-        raise  # Let connection errors propagate — don't mask them
+        raise
     except Exception:
         return ""
 
@@ -3420,18 +3813,21 @@ def generate_html_report(data, include_rca=False, rca_level='none', ai_rca=False
         print(f"  🤖 Running Gemini AI analysis (building on {len(analysis or [])} pattern findings)...", flush=True)
         try:
             try:
-                from healthchecks.ai_analysis import analyze_with_gemini, generate_ai_rca_html, suggest_new_patterns
+                from healthchecks.ai_analysis import analyze_with_gemini, generate_ai_rca_html, suggest_new_patterns, suggest_root_cause_rules
             except ImportError:
-                from ai_analysis import analyze_with_gemini, generate_ai_rca_html, suggest_new_patterns
+                from ai_analysis import analyze_with_gemini, generate_ai_rca_html, suggest_new_patterns, suggest_root_cause_rules
             ai_markdown = analyze_with_gemini(data, rule_analysis=analysis)
             if ai_markdown:
                 ai_rca_html = generate_ai_rca_html(ai_markdown)
                 print(f"  ✅ AI analysis complete", flush=True)
-                # Gemini feedback loop: suggest new patterns for the knowledge base
+                # Gemini feedback loop: suggest new patterns + root cause rules
                 try:
                     new_patterns = suggest_new_patterns(data, ai_markdown, rule_analysis=analysis)
                     if new_patterns:
                         print(f"  🧠 Gemini suggested {len(new_patterns)} new pattern(s) for the knowledge base", flush=True)
+                    new_rc_rules = suggest_root_cause_rules(data, ai_markdown, rule_analysis=analysis)
+                    if new_rc_rules:
+                        print(f"  🧠 Gemini suggested {len(new_rc_rules)} new root cause rule(s)", flush=True)
                 except Exception as exc:
                     print(f"  ⚠️  Pattern suggestion step failed (non-fatal): {exc}", flush=True)
             else:

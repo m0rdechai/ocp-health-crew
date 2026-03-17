@@ -1,0 +1,881 @@
+{
+  "pod-crashloop:oom-kill": {
+    "issue_types": [
+      "pod-crashloop",
+      "pod-unknown"
+    ],
+    "keywords_all": [],
+    "keywords_any": [
+      "oomkilled",
+      "out of memory"
+    ],
+    "cause": "OOM Kill",
+    "confidence": "high",
+    "explanation": "Pod was killed due to memory limits exceeded",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": "2026-03-16T17:45:12.714390"
+  },
+  "pod-crashloop:image-pull": {
+    "issue_types": [
+      "pod-crashloop",
+      "pod-unknown"
+    ],
+    "keywords_all": [
+      "crashloopbackoff"
+    ],
+    "keywords_any": [
+      "pull",
+      "not found"
+    ],
+    "extra_required": [
+      "image"
+    ],
+    "cause": "Image Pull Error",
+    "confidence": "high",
+    "explanation": "Container image could not be pulled",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "pod-crashloop:permission-denied": {
+    "issue_types": [
+      "pod-crashloop",
+      "pod-unknown"
+    ],
+    "keywords_all": [
+      "crashloopbackoff"
+    ],
+    "keywords_any": [
+      "permission",
+      "denied"
+    ],
+    "cause": "Permission Denied",
+    "confidence": "high",
+    "explanation": "Container lacks required permissions",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "pod-crashloop:app-crash": {
+    "issue_types": [
+      "pod-crashloop",
+      "pod-unknown"
+    ],
+    "keywords_all": [
+      "crashloopbackoff"
+    ],
+    "keywords_any": [],
+    "cause": "Application Crash",
+    "confidence": "medium",
+    "is_symptom": true,
+    "explanation": "Application inside container is crashing - checking pod logs for the actual error",
+    "drilldown": "pod-app-crash",
+    "next_steps": [
+      "Check pod logs: oc logs {pod} -n {ns} --previous --tail=100",
+      "Check pod events: oc describe pod {pod} -n {ns} | grep -A20 Events",
+      "Check resource limits: oc describe pod {pod} -n {ns} | grep -A5 Resources"
+    ],
+    "investigation_playbook": [
+      {"stage": "logs", "goal": "Get the crash output from previous container", "commands": ["oc logs {pod} -n {ns} --previous --tail=80 2>&1 | tail -40"]},
+      {"stage": "exit_state", "goal": "Check exit code and last state", "commands": ["oc describe pod {pod} -n {ns} 2>&1 | grep -A10 'Last State:'", "oc describe pod {pod} -n {ns} 2>&1 | grep -A3 'Restart Count:'"]},
+      {"stage": "limits_vs_actual", "goal": "Compare resource limits with actual usage", "commands": ["oc describe pod {pod} -n {ns} 2>&1 | grep -A5 Resources:", "oc adm top pod {pod} -n {ns} 2>&1"]},
+      {"stage": "events", "goal": "Check pod event timeline", "commands": ["oc get events -n {ns} --field-selector involvedObject.name={pod} --sort-by='.lastTimestamp' 2>&1 | tail -10"]},
+      {"stage": "node_health", "goal": "Is the hosting node healthy", "commands": ["oc get pod {pod} -n {ns} -o wide 2>&1 | tail -1", "oc describe node $(oc get pod {pod} -n {ns} -o jsonpath='{.spec.nodeName}' 2>/dev/null) 2>&1 | grep -A5 Conditions: | head -10"]}
+    ],
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "pod-unknown:evicted-disk-pressure": {
+    "issue_types": [
+      "pod-crashloop",
+      "pod-unknown"
+    ],
+    "keywords_all": [
+      "evicted"
+    ],
+    "keywords_any": [
+      "diskpressure",
+      "disk pressure"
+    ],
+    "cause": "Pod Evicted Due to Node Disk Pressure",
+    "confidence": "high",
+    "explanation": "Kubelet evicted this pod because the node ran out of disk space. Identify which node has DiskPressure and free disk or increase capacity.",
+    "is_symptom": true,
+    "drilldown": "pod-evicted-disk",
+    "next_steps": [
+      "Identify the node: oc get pod <pod> -n <ns> -o wide",
+      "Check node disk: oc describe node <node> | grep DiskPressure",
+      "Check what uses disk: oc debug node/<node> -- chroot /host df -h",
+      "Review Red Hat KCS: https://access.redhat.com/solutions/4976801"
+    ],
+    "investigation_playbook": [
+      {"stage": "identify_node", "goal": "Which node evicted the pod", "commands": ["oc get pod {pod} -n {ns} -o wide 2>&1 | tail -1", "oc describe pod {pod} -n {ns} 2>&1 | grep -A5 'Status:\\|Message:\\|Reason:'"]},
+      {"stage": "node_disk", "goal": "Check disk usage on the node", "commands": ["ssh core@{ip} 'df -h'"]},
+      {"stage": "drill_down", "goal": "Which directory is consuming space", "commands": ["ssh core@{ip} 'sudo du -sh /var/lib/* | sort -rh | head -10'"]},
+      {"stage": "trace_owner", "goal": "Which workload fills the disk", "commands": ["ssh core@{ip} 'sudo crictl images | wc -l'", "ssh core@{ip} 'sudo du -sh /var/lib/kubelet/pods/* | sort -rh | head -5'"]},
+      {"stage": "eviction_scope", "goal": "How many pods were evicted on this node", "commands": ["oc get pods --field-selector spec.nodeName={node} -A --no-headers 2>&1 | grep -ci evict"]}
+    ],
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "pod-unknown:evicted-other": {
+    "issue_types": [
+      "pod-crashloop",
+      "pod-unknown"
+    ],
+    "keywords_all": [
+      "evicted"
+    ],
+    "keywords_any": [],
+    "cause": "Pod Evicted by Kubelet",
+    "confidence": "medium",
+    "is_symptom": true,
+    "explanation": "Pod was evicted by kubelet due to resource pressure on the node. Check node conditions for the specific pressure type.",
+    "drilldown": "pod-evicted-generic",
+    "next_steps": [
+      "Check node conditions: oc describe node <node> | grep -A20 Conditions",
+      "Check node resource usage: oc adm top node <node>",
+      "Check events: oc get events -n <ns> --field-selector involvedObject.name=<pod>"
+    ],
+    "investigation_playbook": [
+      {"stage": "identify_node", "goal": "Which node and what pressure type", "commands": ["oc describe pod {pod} -n {ns} 2>&1 | grep -A5 'Status:\\|Message:\\|Reason:'", "oc describe node $(oc get pod {pod} -n {ns} -o jsonpath='{.spec.nodeName}' 2>/dev/null) 2>&1 | grep -A20 Conditions:"]},
+      {"stage": "resource_usage", "goal": "Node resource usage", "commands": ["oc adm top node $(oc get pod {pod} -n {ns} -o jsonpath='{.spec.nodeName}' 2>/dev/null) 2>&1"]},
+      {"stage": "events", "goal": "Pod and node events", "commands": ["oc get events -n {ns} --field-selector involvedObject.name={pod} --sort-by='.lastTimestamp' 2>&1 | tail -10"]}
+    ],
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "pod-crashloop:node-issue": {
+    "issue_types": [
+      "pod-crashloop",
+      "pod-unknown"
+    ],
+    "keywords_all": [
+      "containerstatusunknown"
+    ],
+    "keywords_any": [
+      "notready",
+      "schedulingdisabled"
+    ],
+    "cause": "Node Issue",
+    "confidence": "high",
+    "explanation": "Node became unavailable or was cordoned",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "pod-crashloop:kubelet-lost": {
+    "issue_types": [
+      "pod-crashloop",
+      "pod-unknown"
+    ],
+    "keywords_all": [
+      "containerstatusunknown"
+    ],
+    "keywords_any": [],
+    "cause": "Kubelet Communication Lost",
+    "confidence": "medium",
+    "explanation": "Kubelet lost connection to API server",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "pod-crashloop:insufficient-resources": {
+    "issue_types": [
+      "pod-crashloop",
+      "pod-unknown"
+    ],
+    "keywords_all": [
+      "pending",
+      "insufficient"
+    ],
+    "keywords_any": [],
+    "cause": "Insufficient Resources",
+    "confidence": "high",
+    "explanation": "Cluster lacks resources to schedule pod",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "virt-handler:memory-leak": {
+    "issue_types": [
+      "virt-handler-memory"
+    ],
+    "keywords_all": [],
+    "keywords_any": [
+      "oom",
+      "killed"
+    ],
+    "cause": "Memory Leak",
+    "confidence": "high",
+    "explanation": "virt-handler experiencing memory leak under load",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": "2026-03-16T17:45:12.722357"
+  },
+  "virt-handler:very-high-vm-density": {
+    "issue_types": [
+      "virt-handler-memory"
+    ],
+    "keywords_all": [],
+    "keywords_any": [],
+    "special": "vmi_count_gt_1000",
+    "cause": "Very High VM Density (>1000 VMs)",
+    "confidence": "high",
+    "is_symptom": true,
+    "explanation": "Running >1000 VMs causes proportional memory growth in virt-handler. This is the primary driver of high memory usage. Known issue CNV-71448.",
+    "drilldown": "virt-handler-memory-deep",
+    "next_steps": [
+      "Check VM distribution across nodes: oc get vmi -A -o wide --no-headers | awk '{print $4}' | sort | uniq -c | sort -rn | head -10",
+      "Consider reducing VM density per node or adding more worker nodes",
+      "Increase virt-handler memory limits to prevent OOM",
+      "Known bug: https://issues.redhat.com/browse/CNV-71448"
+    ],
+    "investigation_playbook": [
+      {"stage": "vm_distribution", "goal": "How many VMs per node", "commands": ["oc get vmi -A -o wide --no-headers 2>&1 | awk '{print $4}' | sort | uniq -c | sort -rn | head -10"]},
+      {"stage": "memory_usage", "goal": "virt-handler actual memory usage per node", "commands": ["oc adm top pod -n openshift-cnv -l kubevirt.io=virt-handler --no-headers 2>&1 | sort -k3 -rh | head -10"]},
+      {"stage": "limits_vs_actual", "goal": "Compare memory limits with actual RSS", "commands": ["oc get ds virt-handler -n openshift-cnv -o yaml 2>&1 | grep -A5 resources:", "oc adm top pod -n openshift-cnv -l kubevirt.io=virt-handler --no-headers 2>&1 | head -5"]},
+      {"stage": "oom_check", "goal": "Check for OOM kills", "commands": ["oc get events -n openshift-cnv --field-selector reason=OOMKilled --sort-by='.lastTimestamp' 2>&1 | tail -10"]},
+      {"stage": "capacity_calc", "goal": "Calculate memory per VM ratio", "commands": ["oc get vmi -A --no-headers 2>&1 | wc -l"]}
+    ],
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": "2026-03-16T17:45:12.723052"
+  },
+  "virt-handler:moderate-vm-load": {
+    "issue_types": [
+      "virt-handler-memory"
+    ],
+    "keywords_all": [],
+    "keywords_any": [],
+    "special": "vmi_count_gt_500",
+    "cause": "Moderate VM Load (500-1000 VMs)",
+    "confidence": "medium",
+    "is_symptom": true,
+    "explanation": "Running 500-1000 VMs - memory growth proportional to VM count. Consider spreading load across more nodes.",
+    "drilldown": "virt-handler-memory-deep",
+    "next_steps": [
+      "Check VM distribution per node: oc get vmi -A -o wide --no-headers | awk '{print $4}' | sort | uniq -c | sort -rn",
+      "Monitor for approaching memory limits",
+      "Known bug: https://issues.redhat.com/browse/CNV-71448"
+    ],
+    "investigation_playbook": [
+      {"stage": "vm_distribution", "goal": "How many VMs per node", "commands": ["oc get vmi -A -o wide --no-headers 2>&1 | awk '{print $4}' | sort | uniq -c | sort -rn | head -10"]},
+      {"stage": "limits_vs_actual", "goal": "Compare limits with actual memory", "commands": ["oc get ds virt-handler -n openshift-cnv -o yaml 2>&1 | grep -A5 resources:", "oc adm top pod -n openshift-cnv -l kubevirt.io=virt-handler --no-headers 2>&1 | sort -k3 -rh | head -5"]}
+    ],
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": "2026-03-16T17:45:12.723770"
+  },
+  "virt-handler:high-rss-no-oom": {
+    "issue_types": [
+      "virt-handler-memory"
+    ],
+    "keywords_all": [],
+    "keywords_any": [],
+    "special": "virt_handler_memory_gt_800mi",
+    "cause": "virt-handler High RSS Memory (No OOM Yet)",
+    "confidence": "high",
+    "is_symptom": true,
+    "explanation": "virt-handler pods are consuming 1-3GB RSS memory each. This is above normal baseline (~400Mi) and indicates memory growth proportional to VM count. Known issue CNV-71448.",
+    "drilldown": "virt-handler-memory-deep",
+    "next_steps": [
+      "Check per-node VM count: oc get vmi -A -o wide --no-headers | awk '{print $4}' | sort | uniq -c | sort -rn | head -10",
+      "Check virt-handler memory limits: oc get ds virt-handler -n openshift-cnv -o yaml | grep -A5 resources",
+      "Consider increasing virt-handler memory limit if VMs per node > 50",
+      "Monitor for OOM: oc get events -n openshift-cnv --field-selector reason=OOMKilled | tail -10",
+      "Known bug: https://issues.redhat.com/browse/CNV-71448"
+    ],
+    "investigation_playbook": [
+      {"stage": "vm_distribution", "goal": "VMs per node to calculate memory/VM ratio", "commands": ["oc get vmi -A -o wide --no-headers 2>&1 | awk '{print $4}' | sort | uniq -c | sort -rn | head -10"]},
+      {"stage": "limits_vs_actual", "goal": "Compare configured limits with actual RSS", "commands": ["oc get ds virt-handler -n openshift-cnv -o yaml 2>&1 | grep -A5 resources:", "oc adm top pod -n openshift-cnv -l kubevirt.io=virt-handler --no-headers 2>&1 | sort -k3 -rh | head -5"]},
+      {"stage": "oom_proximity", "goal": "How close to OOM are we", "commands": ["oc get events -n openshift-cnv --field-selector reason=OOMKilled --sort-by='.lastTimestamp' 2>&1 | tail -10"]}
+    ],
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "volumesnapshot:pending": {
+    "issue_types": [
+      "volumesnapshot"
+    ],
+    "keywords_all": [
+      "pending"
+    ],
+    "keywords_any": [],
+    "cause": "Snapshot Pending",
+    "confidence": "medium",
+    "explanation": "Snapshot waiting for CSI driver",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "volumesnapshot:missing-source": {
+    "issue_types": [
+      "volumesnapshot"
+    ],
+    "keywords_all": [],
+    "keywords_any": [
+      "not found",
+      "missing"
+    ],
+    "cause": "Missing Source",
+    "confidence": "high",
+    "explanation": "Source PVC no longer exists",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "volumesnapshot:csi-error": {
+    "issue_types": [
+      "volumesnapshot"
+    ],
+    "keywords_all": [
+      "error",
+      "csi"
+    ],
+    "keywords_any": [],
+    "cause": "CSI Driver Error",
+    "confidence": "high",
+    "explanation": "CSI driver failed to create snapshot",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": "2026-03-16T17:45:12.721460"
+  },
+  "noobaa:node-failure": {
+    "issue_types": [
+      "noobaa"
+    ],
+    "keywords_all": [
+      "containerstatusunknown"
+    ],
+    "keywords_any": [],
+    "cause": "Node Failure",
+    "confidence": "high",
+    "explanation": "Node hosting NooBaa became unavailable",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "noobaa:storage-issue": {
+    "issue_types": [
+      "noobaa"
+    ],
+    "keywords_all": [
+      "pending"
+    ],
+    "keywords_any": [],
+    "cause": "Storage Issue",
+    "confidence": "medium",
+    "explanation": "NooBaa waiting for storage resources",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "metal3:service-unavailable": {
+    "issue_types": [
+      "metal3"
+    ],
+    "keywords_all": [
+      "service"
+    ],
+    "keywords_any": [
+      "unavailable",
+      "error"
+    ],
+    "cause": "Service Unavailable",
+    "confidence": "high",
+    "explanation": "metal3-image-customization-service not reachable",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "metal3:init-container": {
+    "issue_types": [
+      "metal3"
+    ],
+    "keywords_all": [
+      "init",
+      "crash"
+    ],
+    "keywords_any": [],
+    "cause": "Init Container Failure",
+    "confidence": "high",
+    "explanation": "Init container failing to complete",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "migration:timeout": {
+    "issue_types": [
+      "migration"
+    ],
+    "keywords_all": [],
+    "keywords_any": [
+      "timeout",
+      "stuck"
+    ],
+    "cause": "Migration Timeout",
+    "confidence": "high",
+    "explanation": "Migration exceeded time limit",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": "2026-03-16T17:45:12.718298"
+  },
+  "migration:bandwidth": {
+    "issue_types": [
+      "migration"
+    ],
+    "keywords_all": [],
+    "keywords_any": [
+      "bandwidth",
+      "network"
+    ],
+    "cause": "Network Bandwidth",
+    "confidence": "medium",
+    "explanation": "Network bandwidth limiting migration speed",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "migration:cpu-mismatch": {
+    "issue_types": [
+      "migration"
+    ],
+    "keywords_all": [
+      "cpu",
+      "mismatch"
+    ],
+    "keywords_any": [],
+    "cause": "CPU Incompatibility",
+    "confidence": "high",
+    "explanation": "CPU features mismatch between nodes",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "operator:mcp-degraded": {
+    "issue_types": [
+      "operator-degraded",
+      "operator-unavailable"
+    ],
+    "keywords_all": [
+      "degraded"
+    ],
+    "keywords_any": [
+      "machineconfigpool",
+      "machine-config",
+      "mcp"
+    ],
+    "extra_required_any": [
+      "worker",
+      "master"
+    ],
+    "cause": "MachineConfigPool Degraded",
+    "confidence": "high",
+    "is_symptom": true,
+    "explanation": "MachineConfigPool nodes failed to apply updated MachineConfig - drilling down to find which node and why",
+    "drilldown": "mco-degraded",
+    "next_steps": [
+      "Check which nodes are degraded: oc get mcp",
+      "Check MCD logs on degraded node: oc logs -n openshift-machine-config-operator machine-config-daemon-<node> --tail=50",
+      "Check if a node is stuck in drain: oc get nodes | grep SchedulingDisabled",
+      "Review Red Hat KCS: https://access.redhat.com/solutions/5414371"
+    ],
+    "investigation_playbook": [
+      {"stage": "mcp_status", "goal": "Which MCP is degraded and which nodes", "commands": ["oc get mcp 2>&1", "oc get mcp worker -o yaml 2>&1 | grep -A15 'degradedMachineCount\\|message'"]},
+      {"stage": "degraded_nodes", "goal": "Identify the specific degraded nodes", "commands": ["oc get nodes --no-headers 2>&1 | grep -E 'NotReady|SchedulingDisabled'", "oc get co machine-config -o yaml 2>&1 | grep -A10 'message:' | head -20"]},
+      {"stage": "mcd_logs", "goal": "Check MCD logs on degraded node for the error", "commands": ["oc get pods -n openshift-machine-config-operator --no-headers 2>&1 | grep -v Running | head -10", "oc logs -n openshift-machine-config-operator $(oc get pods -n openshift-machine-config-operator --no-headers 2>&1 | grep -v Running | head -1 | awk '{print $1}') --tail=50 2>&1 | tail -30"]},
+      {"stage": "events", "goal": "MCO events timeline", "commands": ["oc get events -n openshift-machine-config-operator --sort-by='.lastTimestamp' 2>&1 | tail -15"]}
+    ],
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": "2026-03-16T17:45:12.715417"
+  },
+  "operator:mcp-timeout": {
+    "issue_types": [
+      "operator-degraded",
+      "operator-unavailable"
+    ],
+    "keywords_all": [],
+    "keywords_any": [
+      "machineconfigpool",
+      "machine-config",
+      "mcp"
+    ],
+    "extra_required_any": [
+      "context deadline",
+      "timeout"
+    ],
+    "cause": "MachineConfig Apply Timeout",
+    "confidence": "high",
+    "explanation": "MachineConfig application timed out during node drain or reboot - nodes may be stuck in SchedulingDisabled",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "operator:mco-sync": {
+    "issue_types": [
+      "operator-degraded",
+      "operator-unavailable"
+    ],
+    "keywords_all": [],
+    "keywords_any": [
+      "syncrequiredmachineconfigpools"
+    ],
+    "cause": "MCO Sync Failure",
+    "confidence": "high",
+    "explanation": "MCO failed to sync required MachineConfigPools - check for incompatible custom MachineConfigs",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": "2026-03-16T17:45:12.720649"
+  },
+  "operator:crashloop": {
+    "issue_types": [
+      "operator-degraded",
+      "operator-unavailable"
+    ],
+    "keywords_all": [
+      "crashloopbackoff"
+    ],
+    "keywords_any": [],
+    "cause": "Operator Pod CrashLoop",
+    "confidence": "high",
+    "is_symptom": true,
+    "explanation": "Pods backing the operator are crash-looping - drilling down into pod logs",
+    "drilldown": "operator-crashloop",
+    "next_steps": [
+      "Check pod logs for the crashing container: oc logs -n openshift-{name} <pod> --previous",
+      "Check resource limits: oc describe pod -n openshift-{name} <pod> | grep -A5 Resources",
+      "Check if node has issues: oc get node <node-of-pod>"
+    ],
+    "investigation_playbook": [
+      {"stage": "identify_pod", "goal": "Which pod is crashing", "commands": ["oc get pods -n openshift-{name} --no-headers 2>&1 | grep -v Running | head -10"]},
+      {"stage": "crash_logs", "goal": "Get the crash output", "commands": ["oc logs -n openshift-{name} $(oc get pods -n openshift-{name} --no-headers 2>/dev/null | grep -v Running | head -1 | awk '{print $1}') --previous --tail=50 2>&1 | tail -30"]},
+      {"stage": "exit_state", "goal": "Check exit code, OOM, resource limits", "commands": ["oc describe pod -n openshift-{name} $(oc get pods -n openshift-{name} --no-headers 2>/dev/null | grep -v Running | head -1 | awk '{print $1}') 2>&1 | grep -A10 'Last State:'", "oc describe pod -n openshift-{name} $(oc get pods -n openshift-{name} --no-headers 2>/dev/null | grep -v Running | head -1 | awk '{print $1}') 2>&1 | grep -A5 'Resources:'"]},
+      {"stage": "limits_vs_actual", "goal": "Compare resource limits with actual usage", "commands": ["oc adm top pod -n openshift-{name} 2>&1 | head -10"]},
+      {"stage": "events", "goal": "Events timeline in operator namespace", "commands": ["oc get events -n openshift-{name} --sort-by='.lastTimestamp' 2>&1 | tail -15"]}
+    ],
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": "2026-03-16T17:45:12.719008"
+  },
+  "operator:resync-failed": {
+    "issue_types": [
+      "operator-degraded",
+      "operator-unavailable"
+    ],
+    "keywords_all": [
+      "failed to resync"
+    ],
+    "keywords_any": [],
+    "cause": "Operator Resync Failed",
+    "confidence": "high",
+    "explanation": "Operator failed to resync to target version - may need manual intervention",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": "2026-03-16T17:45:12.719853"
+  },
+  "operator:stuck-degraded": {
+    "issue_types": [
+      "operator-degraded",
+      "operator-unavailable"
+    ],
+    "keywords_all": [
+      "progressing",
+      "false",
+      "degraded",
+      "true"
+    ],
+    "keywords_any": [],
+    "cause": "Operator Stuck Degraded",
+    "confidence": "high",
+    "explanation": "Operator is degraded and not progressing - manual investigation required",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "operator:reconciliation-error": {
+    "issue_types": [
+      "operator-degraded",
+      "operator-unavailable"
+    ],
+    "keywords_all": [
+      "error",
+      "reconcil"
+    ],
+    "keywords_any": [],
+    "cause": "Reconciliation Error",
+    "confidence": "high",
+    "explanation": "Operator hit an error during reconciliation",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "operator:unavailable": {
+    "issue_types": [
+      "operator-degraded",
+      "operator-unavailable"
+    ],
+    "keywords_all": [],
+    "keywords_any": [
+      "unavailable"
+    ],
+    "cause": "Operator Unavailable",
+    "confidence": "high",
+    "explanation": "Cluster operator core functionality is not working",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "operator:pending-csrs": {
+    "issue_types": [
+      "operator-degraded",
+      "operator-unavailable"
+    ],
+    "keywords_all": [
+      "pending",
+      "csr"
+    ],
+    "keywords_any": [],
+    "cause": "Pending CSRs",
+    "confidence": "medium",
+    "explanation": "Certificate Signing Requests are pending - approve them: oc get csr | grep Pending",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "node:not-ready": {
+    "issue_types": [
+      "node"
+    ],
+    "keywords_all": [],
+    "keywords_any": [
+      "notready"
+    ],
+    "cause": "Node Not Ready",
+    "confidence": "high",
+    "is_symptom": true,
+    "explanation": "Node is in NotReady state - drilling down to find the actual cause",
+    "drilldown": "node-not-ready",
+    "next_steps": [
+      "Check kubelet logs on the node: oc debug node/{name} -- chroot /host journalctl -u kubelet --since '1h ago' | tail -50",
+      "Check if node is reachable: ping {name} or ssh to the node",
+      "Check dmesg for hardware errors: oc debug node/{name} -- chroot /host dmesg | tail -30",
+      "Check if disk is full: oc debug node/{name} -- chroot /host df -h",
+      "Review Red Hat KCS: https://access.redhat.com/solutions/5765631"
+    ],
+    "investigation_playbook": [
+      {"stage": "reachability", "goal": "Is the node reachable at all", "commands": ["ping -c 3 -W 3 {ip}", "ssh core@{ip} 'uptime'"]},
+      {"stage": "kubelet_status", "goal": "Is kubelet running and what does it say", "commands": ["ssh core@{ip} 'sudo systemctl status kubelet'", "ssh core@{ip} 'sudo journalctl -u kubelet --since \"30 min ago\" --no-pager | tail -40'"]},
+      {"stage": "resource_pressure", "goal": "Check disk, memory, PID pressure", "commands": ["ssh core@{ip} 'df -h /var /sysroot'", "ssh core@{ip} 'free -h'", "ssh core@{ip} 'ps aux | wc -l'"]},
+      {"stage": "hardware_errors", "goal": "Check for hardware or kernel errors", "commands": ["ssh core@{ip} 'sudo dmesg | tail -30'", "ssh core@{ip} 'sudo dmesg | grep -iE \"error|fail|oom|panic\" | tail -15'"]},
+      {"stage": "trace_consumer", "goal": "If disk/memory full, find which component", "commands": ["ssh core@{ip} 'sudo du -sh /var/lib/* | sort -rh | head -10'", "ssh core@{ip} 'sudo crictl images | wc -l'"]}
+    ],
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": "2026-03-16T20:43:48.097890"
+  },
+  "node:disk-pressure": {
+    "issue_types": [
+      "node"
+    ],
+    "keywords_all": [
+      "disk",
+      "pressure"
+    ],
+    "keywords_any": [],
+    "cause": "Disk Pressure",
+    "confidence": "high",
+    "is_symptom": true,
+    "explanation": "Node is experiencing disk pressure - drilling down to find which disk consumer is the culprit",
+    "drilldown": "node-disk-pressure",
+    "next_steps": [
+      "Check Prometheus TSDB size: oc exec -n openshift-monitoring prometheus-k8s-0 -- df -h /prometheus",
+      "Check Prometheus retention config: oc get configmap cluster-monitoring-config -n openshift-monitoring -o yaml",
+      "Check container image disk usage: oc debug node/{name} -- chroot /host crictl images | head -20",
+      "Review Red Hat KCS: https://access.redhat.com/solutions/4976801"
+    ],
+    "investigation_playbook": [
+      {"stage": "identify", "goal": "Which filesystem is full and how full", "commands": ["ssh core@{ip} 'df -h /var /sysroot 2>/dev/null'", "ssh core@{ip} 'df -ih /var 2>/dev/null'"]},
+      {"stage": "map_all_consumers", "goal": "Map ALL major consumers (breadth-first, do not fixate on one)", "commands": ["ssh core@{ip} 'sudo du -sh /var/lib/containers /var/lib/kubelet /var/log /var/lib/etcd 2>/dev/null | sort -rh'", "ssh core@{ip} 'sudo du -sh /var/lib/kubelet/pods/* 2>/dev/null | sort -rh | head -10'", "ssh core@{ip} 'sudo du -sh /var/lib/containers/storage/overlay/* 2>/dev/null | sort -rh | head -10'", "ssh core@{ip} 'sudo du -sh /var/log/pods/* 2>/dev/null | sort -rh | head -10'"]},
+      {"stage": "identify_pod_owners", "goal": "Identify which workload owns each large pod UUID by checking volume names and cross-referencing", "commands": ["ssh core@{ip} 'sudo ls /var/lib/kubelet/pods/<top-uuid>/volumes/kubernetes.io~empty-dir/ 2>/dev/null; sudo ls /var/lib/kubelet/pods/<top-uuid>/volumes/kubernetes.io~configmap/ 2>/dev/null'", "oc get pods --field-selector spec.nodeName={name} -A -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,UID:.metadata.uid --no-headers 2>&1 | head -20"]},
+      {"stage": "trace_owner", "goal": "Identify which images or logs are consuming space", "commands": ["ssh core@{ip} 'sudo crictl images | wc -l'", "ssh core@{ip} 'sudo crictl images --digests | sort -k5 -rh | head -15'"]},
+      {"stage": "verify_config", "goal": "Check GC and retention settings", "commands": ["ssh core@{ip} 'sudo cat /etc/kubernetes/kubelet.conf 2>/dev/null | grep -iE \"imageGC|eviction\"'", "oc get configmap cluster-monitoring-config -n openshift-monitoring -o yaml 2>&1 | head -30"]}
+    ],
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": "2026-03-16T17:45:12.716205"
+  },
+  "node:memory-pressure": {
+    "issue_types": [
+      "node"
+    ],
+    "keywords_all": [
+      "memory",
+      "pressure"
+    ],
+    "keywords_any": [],
+    "cause": "Memory Pressure",
+    "confidence": "high",
+    "is_symptom": true,
+    "explanation": "Node is experiencing memory pressure - drilling down to find which process consumes memory",
+    "drilldown": "node-memory-pressure",
+    "next_steps": [
+      "Check top memory consumers on the node: oc debug node/{name} -- chroot /host ps aux --sort=-%mem | head -15",
+      "Check for OOM kills in dmesg: oc debug node/{name} -- chroot /host dmesg | grep -i oom | tail -20",
+      "Review pod resource limits in affected namespace",
+      "Review Red Hat KCS: https://access.redhat.com/solutions/5765631"
+    ],
+    "investigation_playbook": [
+      {"stage": "identify", "goal": "How much memory is used and by what type", "commands": ["ssh core@{ip} 'free -h'", "ssh core@{ip} 'cat /proc/meminfo | head -10'"]},
+      {"stage": "top_consumers", "goal": "Which processes consume the most memory", "commands": ["ssh core@{ip} 'ps aux --sort=-%mem | head -20'", "oc adm top pods --field-selector spec.nodeName={name} -A --no-headers 2>&1 | sort -k3 -rh | head -15"]},
+      {"stage": "oom_events", "goal": "Check for OOM kills", "commands": ["ssh core@{ip} 'sudo dmesg | grep -i oom | tail -20'", "oc get events -A --field-selector reason=OOMKilled --sort-by='.lastTimestamp' 2>&1 | tail -10"]},
+      {"stage": "limits_vs_actual", "goal": "Compare resource limits with actual usage for top consumers", "commands": ["oc describe pod {top_pod} -n {top_ns} 2>&1 | grep -A5 Resources:", "oc adm top pod {top_pod} -n {top_ns} 2>&1"]},
+      {"stage": "timeline", "goal": "When did memory pressure start", "commands": ["oc get events --field-selector involvedObject.name={name} --sort-by='.lastTimestamp' 2>&1 | grep -i memory | tail -10"]}
+    ],
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": "2026-03-16T17:45:12.716865"
+  },
+  "node:cordoned": {
+    "issue_types": [
+      "node"
+    ],
+    "keywords_all": [
+      "schedulingdisabled"
+    ],
+    "keywords_any": [],
+    "cause": "Node Cordoned",
+    "confidence": "medium",
+    "is_symptom": true,
+    "explanation": "Node has been cordoned (SchedulingDisabled) - checking why",
+    "drilldown": "node-cordoned",
+    "next_steps": [
+      "Check who cordoned it: oc describe node {name} | grep -A5 Taints",
+      "Check MCP status: oc get mcp - node may be updating",
+      "Check if drain was started: oc get events --field-selector involvedObject.name={name} | grep -i drain"
+    ],
+    "investigation_playbook": [
+      {"stage": "identify", "goal": "Why was the node cordoned", "commands": ["oc describe node {name} 2>&1 | grep -A10 Taints:", "oc get mcp 2>&1"]},
+      {"stage": "mcp_check", "goal": "Is the node updating via MachineConfig", "commands": ["oc get mcp worker -o yaml 2>&1 | grep -A10 'degradedMachineCount\\|message'", "oc get nodes --no-headers 2>&1 | grep SchedulingDisabled"]},
+      {"stage": "events", "goal": "What triggered the cordon/drain", "commands": ["oc get events --field-selector involvedObject.name={name} --sort-by='.lastTimestamp' 2>&1 | grep -iE 'drain|cordon|taint|schedule' | tail -10"]}
+    ],
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "csi:crashloop": {
+    "issue_types": [
+      "csi"
+    ],
+    "keywords_all": [],
+    "keywords_any": [
+      "crashloopbackoff",
+      "back-off restarting",
+      "restarting failed container"
+    ],
+    "cause": "CSI Controller CrashLoopBackOff",
+    "confidence": "high",
+    "is_symptom": true,
+    "explanation": "A CSI driver controller pod is crash-looping. This can prevent volume provisioning and snapshot operations.",
+    "drilldown": "csi-crashloop",
+    "next_steps": [
+      "Check previous container logs: oc logs <pod> -n <ns> --previous --tail=50",
+      "Check pod events: oc describe pod <pod> -n <ns>",
+      "Check if it's OOM-killed: oc get events -n <ns> --field-selector reason=OOMKilled",
+      "Check CSI driver health: oc get csidrivers",
+      "Review Red Hat KCS: https://access.redhat.com/solutions/6005941"
+    ],
+    "investigation_playbook": [
+      {"stage": "identify_pod", "goal": "Which CSI pod is crashing", "commands": ["oc get pods -A --no-headers 2>&1 | grep -i csi | grep -v Running | head -10"]},
+      {"stage": "crash_logs", "goal": "Get the crash output", "commands": ["oc logs $(oc get pods -A --no-headers 2>&1 | grep -i csi | grep -i crash | head -1 | awk '{print \"-n \" $1 \" \" $2}') --previous --tail=50 2>&1 | tail -30"]},
+      {"stage": "exit_state", "goal": "Check exit code, OOM, resource limits", "commands": ["oc describe pod $(oc get pods -A --no-headers 2>&1 | grep -i csi | grep -v Running | head -1 | awk '{print $2 \" -n \" $1}') 2>&1 | grep -A10 'Last State:\\|Events:' | head -25"]},
+      {"stage": "limits_vs_actual", "goal": "Compare CSI pod resource limits with actual usage", "commands": ["oc adm top pod -n openshift-storage -l app=openshift-storage.rbd.csi.ceph.com-ctrlplugin 2>&1", "oc get pod -n openshift-storage -l app=openshift-storage.rbd.csi.ceph.com-ctrlplugin -o jsonpath='{.items[0].spec.containers[?(@.name==\"csi-rbdplugin\")].resources.limits.memory}' 2>&1"]},
+      {"stage": "storage_health", "goal": "Check storage cluster health", "commands": ["oc get storagecluster -n openshift-storage 2>&1", "oc get cephcluster -n openshift-storage 2>&1"]}
+    ],
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "csi:pod-not-running": {
+    "issue_types": [
+      "csi"
+    ],
+    "keywords_all": [],
+    "keywords_any": [
+      "error",
+      "pending",
+      "evicted",
+      "unknown"
+    ],
+    "cause": "CSI Pod Not Running",
+    "confidence": "medium",
+    "is_symptom": true,
+    "explanation": "CSI-related pod is not in Running state. Check pod events and logs for details.",
+    "drilldown": "csi-pod-issue",
+    "next_steps": [
+      "Check all CSI pods: oc get pods -A | grep csi",
+      "Describe the failing pod: oc describe pod <pod> -n <ns>",
+      "Check storage cluster health: oc get storagecluster -n openshift-storage"
+    ],
+    "investigation_playbook": [
+      {"stage": "identify", "goal": "Which CSI pods are not running", "commands": ["oc get pods -A --no-headers 2>&1 | grep -i csi | grep -v Running | head -10"]},
+      {"stage": "describe", "goal": "Pod events and status", "commands": ["oc describe pod $(oc get pods -A --no-headers 2>&1 | grep -i csi | grep -v Running | head -1 | awk '{print $2 \" -n \" $1}') 2>&1 | grep -A15 Events: | head -20"]},
+      {"stage": "storage_health", "goal": "Overall storage cluster state", "commands": ["oc get storagecluster -n openshift-storage 2>&1", "oc get cephcluster -n openshift-storage -o jsonpath='{.items[0].status.ceph.health}' 2>&1"]}
+    ],
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "csi:driver-missing": {
+    "issue_types": [
+      "csi"
+    ],
+    "keywords_all": [],
+    "keywords_any": [
+      "no matches",
+      "not found"
+    ],
+    "cause": "CSI Driver Not Found",
+    "confidence": "high",
+    "explanation": "Expected CSI driver is missing from the cluster. Storage provisioning will fail.",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "alert:critical": {
+    "issue_types": [
+      "alert"
+    ],
+    "keywords_all": [
+      "critical"
+    ],
+    "keywords_any": [],
+    "cause": "Critical Alerts",
+    "confidence": "high",
+    "explanation": "Critical alerts are firing in the cluster",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  },
+  "alert:warning": {
+    "issue_types": [
+      "alert"
+    ],
+    "keywords_all": [
+      "warning"
+    ],
+    "keywords_any": [],
+    "cause": "Warning Alerts",
+    "confidence": "medium",
+    "explanation": "Warning alerts indicate potential issues",
+    "source": "built-in",
+    "created": "2025-03-16T00:00:00",
+    "last_matched": null
+  }
+}

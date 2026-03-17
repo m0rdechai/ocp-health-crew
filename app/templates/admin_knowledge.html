@@ -105,6 +105,7 @@
         <div class="tab-switch">
             <button class="active" onclick="showTab('patterns', this)">Issue Patterns</button>
             <button onclick="showTab('bugs', this)">Jira Bugs</button>
+            <button onclick="showTab('rc-rules', this)">Root Cause Rules</button>
         </div>
 
         <!-- PATTERNS TAB -->
@@ -190,6 +191,49 @@
                 </table>
             </div>
         </div>
+
+        <!-- ROOT CAUSE RULES TAB -->
+        <div id="tab-rc-rules" style="display:none;">
+            <div class="filter-bar">
+                <input type="text" id="searchRcInput" placeholder="Search rules..." oninput="filterRcTable()">
+                <button onclick="openCreateRcRule()" style="margin-left:auto;padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:6px;font-weight:600;cursor:pointer;">+ Add Rule</button>
+            </div>
+            <div class="card" style="padding:0;overflow:auto;">
+                <table class="kb-table" id="rcRulesTable">
+                    <thead>
+                        <tr>
+                            <th>Key</th>
+                            <th>Cause</th>
+                            <th>Issue Types</th>
+                            <th>Keywords (ALL)</th>
+                            <th>Keywords (ANY)</th>
+                            <th>Confidence</th>
+                            <th>Source</th>
+                            <th>Last Matched</th>
+                            <th style="width:80px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for key, rule in rc_rules.items() %}
+                        <tr data-key="{{ key }}">
+                            <td><code style="font-size:12px;">{{ key }}</code></td>
+                            <td><strong>{{ rule.cause }}</strong><br><span style="font-size:11px;color:var(--text-secondary);">{{ rule.explanation[:60] }}{% if rule.explanation|length > 60 %}...{% endif %}</span></td>
+                            <td><div class="kb-keywords">{% for t in rule.issue_types %}<span class="kb-kw">{{ t }}</span>{% endfor %}</div></td>
+                            <td><div class="kb-keywords">{% for kw in rule.keywords_all %}<span class="kb-kw" style="border:1px solid #4fc3f7;">{{ kw }}</span>{% endfor %}{% if not rule.keywords_all %}<span style="color:var(--text-secondary);font-size:11px;">-</span>{% endif %}</div></td>
+                            <td><div class="kb-keywords">{% for kw in rule.keywords_any %}<span class="kb-kw" style="border:1px solid #ffb74d;">{{ kw }}</span>{% endfor %}{% if not rule.keywords_any %}<span style="color:var(--text-secondary);font-size:11px;">-</span>{% endif %}</div></td>
+                            <td><span style="color:{{ '#73BF69' if rule.confidence == 'high' else '#FF9830' if rule.confidence == 'medium' else '#8b949e' }};">{{ rule.confidence }}</span></td>
+                            <td><span class="kb-badge {{ rule.source }}">{{ rule.source }}</span></td>
+                            <td style="font-size:11px;color:var(--text-secondary);">{{ rule.last_matched[:10] if rule.last_matched else 'never' }}</td>
+                            <td class="kb-actions">
+                                <button class="edit-btn" onclick='editRcRule("{{ key }}")' title="Edit">✏️</button>
+                                <button class="delete-btn" onclick='deleteRcRule("{{ key }}")' title="Delete">🗑️</button>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </main>
 </div>
 
@@ -245,13 +289,45 @@
     </div>
 </div>
 
+<!-- RC RULE MODAL -->
+<div class="modal-overlay" id="rcRuleModal">
+    <div class="modal">
+        <h3 id="rcRuleModalTitle">Add Root Cause Rule</h3>
+        <input type="hidden" id="rcModalMode" value="create">
+        <label>Key (unique identifier)</label>
+        <input type="text" id="rc_key" placeholder="e.g. pod-crashloop:oom-kill">
+        <label>Cause (root cause name)</label>
+        <input type="text" id="rc_cause" placeholder="e.g. OOM Kill">
+        <label>Issue Types (comma-separated)</label>
+        <input type="text" id="rc_issue_types" placeholder="pod-crashloop, pod-unknown">
+        <label>Keywords ALL (comma-separated, all must match)</label>
+        <input type="text" id="rc_keywords_all" placeholder="keyword1, keyword2">
+        <label>Keywords ANY (comma-separated, at least one must match)</label>
+        <input type="text" id="rc_keywords_any" placeholder="keyword1, keyword2">
+        <label>Confidence</label>
+        <select id="rc_confidence">
+            <option value="high">high</option>
+            <option value="medium">medium</option>
+            <option value="low">low</option>
+        </select>
+        <label>Explanation</label>
+        <textarea id="rc_explanation" placeholder="What this root cause means and suggested action..."></textarea>
+        <div class="modal-btns">
+            <button class="btn-cancel" onclick="closeModal('rcRuleModal')">Cancel</button>
+            <button class="btn-primary" onclick="submitRcRule()">Save</button>
+        </div>
+    </div>
+</div>
+
 <script>
 const issuesData = {{ issues | tojson }};
 const bugsData = {{ bugs | tojson }};
+const rcRulesData = {{ rc_rules | tojson }};
 
 function showTab(name, btn) {
     document.getElementById('tab-patterns').style.display = name === 'patterns' ? '' : 'none';
     document.getElementById('tab-bugs').style.display = name === 'bugs' ? '' : 'none';
+    document.getElementById('tab-rc-rules').style.display = name === 'rc-rules' ? '' : 'none';
     document.querySelectorAll('.tab-switch button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
 }
@@ -390,6 +466,67 @@ function refreshBugs(btn) {
             btn.disabled = false;
             btn.textContent = 'Refresh from Jira';
         }).catch(e => { alert('Request failed: ' + e); btn.disabled = false; btn.textContent = 'Refresh from Jira'; });
+}
+
+function filterRcTable() {
+    const q = document.getElementById('searchRcInput').value.toLowerCase();
+    document.querySelectorAll('#rcRulesTable tbody tr').forEach(r => {
+        r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+}
+
+function openCreateRcRule() {
+    document.getElementById('rcRuleModalTitle').textContent = 'Add Root Cause Rule';
+    document.getElementById('rcModalMode').value = 'create';
+    ['rc_key','rc_cause','rc_issue_types','rc_keywords_all','rc_keywords_any','rc_explanation'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('rc_confidence').value = 'high';
+    document.getElementById('rc_key').readOnly = false;
+    document.getElementById('rcRuleModal').classList.add('show');
+}
+
+function editRcRule(key) {
+    const rule = rcRulesData[key];
+    if (!rule) return;
+    document.getElementById('rcRuleModalTitle').textContent = 'Edit Rule: ' + key;
+    document.getElementById('rcModalMode').value = 'edit';
+    document.getElementById('rc_key').value = key;
+    document.getElementById('rc_key').readOnly = true;
+    document.getElementById('rc_cause').value = rule.cause || '';
+    document.getElementById('rc_issue_types').value = (rule.issue_types || []).join(', ');
+    document.getElementById('rc_keywords_all').value = (rule.keywords_all || []).join(', ');
+    document.getElementById('rc_keywords_any').value = (rule.keywords_any || []).join(', ');
+    document.getElementById('rc_confidence').value = rule.confidence || 'medium';
+    document.getElementById('rc_explanation').value = rule.explanation || '';
+    document.getElementById('rcRuleModal').classList.add('show');
+}
+
+function submitRcRule() {
+    const mode = document.getElementById('rcModalMode').value;
+    const key = document.getElementById('rc_key').value.trim();
+    if (!key) { alert('Key is required'); return; }
+    const payload = {
+        key: key,
+        cause: document.getElementById('rc_cause').value,
+        issue_types: document.getElementById('rc_issue_types').value,
+        keywords_all: document.getElementById('rc_keywords_all').value,
+        keywords_any: document.getElementById('rc_keywords_any').value,
+        confidence: document.getElementById('rc_confidence').value,
+        explanation: document.getElementById('rc_explanation').value,
+    };
+    const url = mode === 'create' ? '/admin/api/knowledge/rc-rules' : '/admin/api/knowledge/rc-rules/' + encodeURIComponent(key);
+    const method = mode === 'create' ? 'POST' : 'PUT';
+    fetch(url, { method: method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+        .then(r => r.json()).then(d => {
+            if (d.success) { location.reload(); } else { alert(d.error || 'Error'); }
+        }).catch(e => alert('Request failed: ' + e));
+}
+
+function deleteRcRule(key) {
+    if (!confirm('Delete root cause rule "' + key + '"?')) return;
+    fetch('/admin/api/knowledge/rc-rules/' + encodeURIComponent(key), { method: 'DELETE' })
+        .then(r => r.json()).then(d => {
+            if (d.success) { location.reload(); } else { alert(d.error || 'Error'); }
+        });
 }
 </script>
 {% endblock %}

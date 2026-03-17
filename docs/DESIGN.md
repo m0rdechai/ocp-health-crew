@@ -34,13 +34,13 @@
 
 ### Intelligent RCA
 
-**Root cause analysis with multiple sources:**
+**3-level root cause analysis that digs until the specific component is identified:**
 
-- **Jira Bugs** - Matches failures against known bugs
-- **Known Issues** - 18 pattern types with remediation steps
-- **Investigation** - 13 targeted command sets per issue type
-- **Patterns** - Recognizes recurring issues across runs
-- **Gemini AI RCA** - LLM-powered analysis correlates failures and suggests remediation
+- **Level 1** - Pattern matching + rule-based investigation commands
+- **Level 2** - Symptom drill-down (deeper commands when L1 finds a symptom)
+- **Level 3** - AI investigation loop (Gemini suggests/executes/analyzes commands iteratively)
+- **Jira Context** - Enriched bug descriptions fed to AI during investigation (29 bugs with full summaries, components, fix versions)
+- **Parallel** - All issue types investigated concurrently (ThreadPoolExecutor)
 
 </td>
 <td align="left" width="50%">
@@ -151,12 +151,13 @@ Result: New test automatically added to suite!
 <td width="33%">
 
 ### AI Capabilities
-- **Gemini AI RCA** (new)
+- **AI Investigation Loop** - Gemini 2.5 Flash iteratively runs diagnostic commands (3-5 rounds)
+- **AI Summary** - Gemini 2.5 Pro correlates findings across subsystems
+- **Component Tracing** - AI traces resource hogs to specific pods/workloads/namespaces
+- **Enriched Jira Context** - AI receives full bug descriptions, symptoms, and fix versions during investigation
 - Self-evolving test suite
 - Jira bug correlation
-- Root cause analysis
 - Pattern recognition
-- Auto-remediation suggestions
 - Knowledge base learning
 
 </td>
@@ -206,7 +207,7 @@ Users can define their own health checks with:
 <td align="center" colspan="2">
 <h3>Health Check Engine</h3>
 <sub>hybrid_health_check.py</sub><br>
-<sub>17 check categories &bull; HTML reports &bull; email</sub>
+<sub>15 check categories &bull; HTML reports &bull; email</sub>
 </td>
 <td align="center" colspan="2">
 <h3>CNV Scenario Engine</h3>
@@ -217,8 +218,8 @@ Users can define their own health checks with:
 <tr><td align="center" colspan="4">&darr;</td></tr>
 <tr>
 <td align="center" colspan="4">
-<h3>AI / RCA Layer</h3>
-<sub>Dynamic knowledge (knowledge/) &bull; Jira bug matching &bull; Pattern-based RCA &bull; Investigation commands &bull; Gemini AI RCA</sub>
+<h3>AI / RCA Layer (3-level pipeline)</h3>
+<sub>L1: Pattern matching &bull; L2: Symptom drill-down (SSH to nodes) &bull; L3: AI investigation loop (Gemini Pro) &bull; Parallel execution</sub>
 </td>
 </tr>
 <tr><td align="center" colspan="4">&darr;</td></tr>
@@ -319,14 +320,15 @@ ocp-health-crew/
 │
 ├── knowledge/                          # Dynamic knowledge base (JSON)
 │   ├── known_issues.json               #   Pattern definitions (built-in, user, learned, gemini, jira-scan)
-│   └── known_bugs.json                 #   Jira bug cache
+│   ├── known_bugs.json                 #   Enriched Jira bug cache (29 bugs with summary, description, components)
+│   └── root_cause_rules.json           #   Root cause rules (keyword matching, symptom/drill-down flags)
 │
 ├── healthchecks/                       # Health check engines
 │   ├── __init__.py                     #   Package overview
-│   ├── knowledge_base.py               #   Load/save patterns from knowledge/; seeding from hardcoded dicts
-│   ├── hybrid_health_check.py          #   Core engine: SSH, 17 check categories, HTML reports,
-│   │                                   #     email, Jira RCA, auto oc-login, connection validation
-│   ├── ai_analysis.py                  #   Gemini AI RCA: API call, prompt builder, markdown-to-HTML
+│   ├── knowledge_base.py               #   Load/save patterns from knowledge/; built-in seed data
+│   ├── hybrid_health_check.py          #   Core engine: SSH, 15 check categories, 3-level RCA,
+│   │                                   #     HTML reports, email, Jira, parallel investigation
+│   ├── ai_analysis.py                  #   AI investigation loop, SSH safety, Gemini API, AI summary
 │   ├── cnv_scenarios.py                #   CNV scenario runner: SSH to jump host, runs kube-burner
 │   │                                   #     workloads via run-workloads.sh
 │   ├── cnv_report.py                   #   CNV report generator: parses scenario output, builds
@@ -399,37 +401,48 @@ ocp-health-crew/
 
 ## AI Integration Details
 
-### Gemini AI Root Cause Analysis (Implemented)
+### AI-Driven Root Cause Analysis
 
-The `--ai-rca` flag activates LLM-powered analysis using Google Gemini 2.5 Pro. Gemini always runs **after** the pattern matching phase -- the rule engine's findings are passed to the AI so it can focus on cross-subsystem correlations and gaps rather than rediscovering known issues.
+The `--ai` flag activates the full 3-level investigation pipeline. Each level digs deeper than the last:
 
 **How it works:**
 
 ```
-Health Data ──→ Pattern Matching (always) ──→ Gemini AI ──→ HTML Section in Report
-                     │                            ↑
-                     └── pattern findings ────────┘
+Health Data ──→ L1: Pattern Match ──→ L2: Symptom Drill-down ──→ L3: AI Investigation Loop ──→ Report
+                     │                       │                          │
+                     └── known_issues.json   └── root_cause_rules.json  └── Gemini 2.5 Flash
+                                                  (is_symptom=true)          (3-5 rounds)
 ```
 
-- **Pattern-first design:** When `--ai-rca` is set, `analyze_failures()` runs automatically (even without `--ai`). The pattern engine is fast and free. With `--ai --ai-rca`, deep investigation results are also included.
-- **Two inputs to Gemini:** `_build_health_summary()` distills raw cluster data. `_build_rule_analysis_summary()` distills pattern findings (matched issues, Jira refs, root causes, investigation results). Both are sent in a single prompt.
-- **Prompt instructions:** Gemini is told to confirm/challenge the rule-based findings, identify correlations the patterns missed, fill "Unknown Issue" gaps, and add context the static rules cannot provide. It is told not to repeat rule findings verbatim.
-- **Output:** A dedicated "AI Root Cause Analysis" section in the HTML report, styled to match the existing dark theme, with a disclaimer that it's AI-generated.
-- **Fallback:** If the API key is missing or the call fails, the pipeline continues without the AI section.
-- **Cost:** ~$0.003 per run (summarized input keeps token usage low).
-- **Gemini feedback loop:** After AI analysis, Gemini is asked to suggest new patterns via `suggest_new_patterns()`. New patterns that pass deduplication are automatically saved to the knowledge base with `source="gemini"` and `confidence=0.5`, so the RCA pattern engine picks them up on subsequent runs.
+**Level 1 -- Rule-based.** Pattern matching against `known_issues.json`, investigation commands, root cause determination via `root_cause_rules.json`.
+
+**Level 2 -- Symptom drill-down.** When a root cause rule has `is_symptom: true`, deeper diagnostic commands run automatically. Drill-downs can chain.
+
+**Level 3 -- AI investigation loop.** `ai_investigate()` runs an iterative loop where Gemini 2.5 Flash suggests diagnostic commands, the system executes them via SSH, and the AI analyzes the results. Key properties:
+- **3-5 rounds** of investigation (minimum 3 before accepting `is_final=true`)
+- **Self-evaluating** - the AI decides when the root cause is specific enough
+- **Component tracing** - traces resource consumption to specific pods, workloads, namespaces
+- **Directory drill-down** - never stops at "disk full"; drills into subdirectories to find the actual consumer
+- **Enriched Jira context** - AI receives full bug descriptions (summary, symptoms, components, fix versions) from `known_bugs.json` during investigation, enabling it to match live symptoms against known bugs
+- **Node SSH automation** - auto-resolves hostnames to IPs, adds `core@` prefix, timeout wrapping
+- **Read-only safety** - blocks any write/destructive commands
+- **Parallel execution** - all issue types investigated concurrently (ThreadPoolExecutor, 4 workers)
+
+**AI summary layer** (`--ai-rca`): After the investigation pipeline, Gemini 2.5 Pro produces a high-level correlation analysis across all findings.
 
 **Usage:**
 
 ```bash
-python3 healthchecks/hybrid_health_check.py --ai-rca                   # Patterns + AI
-python3 healthchecks/hybrid_health_check.py --ai --ai-rca              # Patterns + deep investigation + AI
+python3 healthchecks/hybrid_health_check.py --ai                       # Full 3-level investigation
+python3 healthchecks/hybrid_health_check.py --ai --ai-rca              # Investigation + AI summary
 python3 healthchecks/hybrid_health_check.py --ai --ai-rca --rca-jira   # Full stack
 ```
 
-**Requirements:** `GEMINI_API_KEY` environment variable set on the host running the health check.
+**Performance:** ~75-120s for deep investigation of 5 issue types (parallel). ~$0.03-0.08 per run (Gemini Pro for investigation and summary).
 
-> **Note:** The rule-based RCA, Jira integration, and email/web search features described below remain as previously documented. Jira integration works with a static fallback. Email and web search are stubs.
+**Requirements:** `GEMINI_API_KEY` or `GOOGLE_API_KEY` environment variable set on the host.
+
+> **Note:** Jira integration works with a static fallback. Email and web search are stubs.
 
 ### Learning System
 
@@ -494,21 +507,23 @@ Searches external sources:
 
 ## Dynamic Knowledge Base
 
-All hardcoded knowledge (KNOWN_ISSUES, INVESTIGATION_COMMANDS, KNOWN_BUGS) has been externalized to JSON files in `knowledge/`. The pattern engine loads patterns at runtime from `known_issues.json` via `healthchecks/knowledge_base.py`.
+All knowledge (patterns, investigation commands, bug data) lives in JSON files in `knowledge/`. The pattern engine loads patterns at runtime from `known_issues.json` via `healthchecks/knowledge_base.py`. There are no hardcoded pattern dicts in the engine code.
 
 **Five sources feed the knowledge store:**
 
 | Source | Description |
 |:-------|:-------------|
-| **built-in** | Patterns shipped with the code, seeded on first run |
+| **built-in** | 18 patterns with investigation commands, seeded on first run from `knowledge_base.py` |
 | **user** | Added via admin UI at `/admin/knowledge` |
 | **learned** | Auto-promoted from the learning system at 3+ occurrences |
 | **gemini** | AI-suggested patterns saved after Gemini RCA analysis |
 | **jira-scan** | Accepted suggestions from Jira API scans |
 
-**Admin UI:** `/admin/knowledge` provides CRUD operations for patterns and bugs. Bugs can be refreshed from the Jira API.
+**Enriched Jira Bug Cache:** `known_bugs.json` stores 29 bugs with rich context pulled from Jira: `summary`, `description_snippet` (300-char extract of problem description), `components` (Jira component names), plus status/fix_versions/affects. This context is injected into the AI investigation prompt so the AI can compare live cluster symptoms against known bug descriptions.
 
-**Backward compatibility:** On first run, if the JSON files do not exist, the system seeds them from the hardcoded dicts in `hybrid_health_check.py`.
+**Admin UI:** `/admin/knowledge` provides CRUD operations for patterns and bugs. Bugs can be refreshed from the Jira API (the refresh endpoint now pulls summary, description, and components alongside status fields).
+
+**Seeding:** On first run, if `known_issues.json` does not exist, it is generated from `_BUILTIN_SEED` in `knowledge_base.py` (18 patterns with investigation commands baked in). After seeding, all pattern data lives exclusively in JSON.
 
 ---
 
@@ -594,8 +609,10 @@ Uses local LLM (Ollama llama3.2:3b) for analysis.
 | `KUBECONFIG_REMOTE` | Yes | KUBECONFIG path on the remote host |
 | `EMAIL_TO` | No | Email recipient for reports |
 | `SMTP_SERVER` | No | SMTP server for email delivery |
-| `GEMINI_API_KEY` | No | Google Gemini API key for AI-powered RCA (`--ai-rca`) |
-| `GEMINI_MODEL` | No | Gemini model name (default: `gemini-2.5-pro`) |
+| `GEMINI_API_KEY` | No | Google Gemini API key for AI investigation and summary |
+| `GOOGLE_API_KEY` | No | Alternative to GEMINI_API_KEY (either works) |
+| `GEMINI_MODEL` | No | Model for AI summary (default: `gemini-2.5-pro`) |
+| `GEMINI_INVESTIGATE_MODEL` | No | Model for AI investigation loop (default: `gemini-2.5-pro`) |
 | `FLASK_HOST` | No | Dashboard bind address (default: `0.0.0.0`) |
 | `FLASK_PORT` | No | Dashboard port (default: `5000`) |
 
@@ -627,7 +644,7 @@ Init (5%) → Connect (15%) → Collect Data (50%) → Analyze (75%) → Report 
 | Connect | SSH to target host, validate oc access, auto-login if needed |
 | Collect Data | Run 17+ oc commands across all check categories |
 | Console Report | Print summary to build console |
-| Analyze (optional) | Load patterns from `knowledge/known_issues.json`; rule-based RCA (pattern matching, Jira) and/or Gemini AI analysis |
+| Analyze (optional) | 3-level RCA pipeline: L1 pattern matching, L2 symptom drill-down, L3 AI investigation loop (parallel per issue type). Optional Gemini AI summary. |
 | Generate Report | Create HTML + Markdown reports |
 | Send Email | Deliver report to configured recipients (if enabled) |
 
@@ -677,5 +694,5 @@ Init (5%) → Connect (15%) → Collect Data (50%) → Analyze (75%) → Report 
 </p>
 
 <p align="center">
-  <sub>Document Version 2.1 &bull; March 2026</sub>
+  <sub>Document Version 3.1 &bull; March 2026</sub>
 </p>

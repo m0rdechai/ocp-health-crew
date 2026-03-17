@@ -19,6 +19,7 @@ graph TB
     end
     subgraph subprocess [Subprocess]
         HybridHC[hybrid_health_check.py]
+        AIAnalysis[ai_analysis.py<br>AI investigation loop]
         CnvScenarios[cnv_scenarios.py]
     end
     subgraph cluster [OCP Cluster]
@@ -39,10 +40,13 @@ graph TB
     Flask -->|"subprocess.Popen()"| CnvScenarios
     Scheduler -->|"start_build()"| Flask
     HybridHC -->|"Paramiko SSH"| APIServer
+    HybridHC -->|imports| AIAnalysis
+    AIAnalysis -->|"SSH commands via bastion"| Workers
     CnvScenarios -->|"Paramiko SSH"| APIServer
     HybridHC -->|HTML file| Reports
     HybridHC -.->|"mcp-proxy (optional)"| Jira
     HybridHC -.->|"smtplib (optional)"| SMTP
+    AIAnalysis -->|"google-genai (--ai)"| Gemini
     HybridHC -.->|"google-genai (--ai-rca)"| Gemini
     Ollama -.->|"CLI only (crewai_agents.py)"| APIServer
 ```
@@ -148,7 +152,7 @@ Four files implement SSH connections. Only `hybrid_health_check.py` is used by t
 
 ## Health Check Engine
 
-`healthchecks/hybrid_health_check.py` (~4300 lines) is the main engine. It runs as a subprocess and writes to stdout (streamed by the Flask thread) and generates an HTML report file.
+`healthchecks/hybrid_health_check.py` (~5200 lines) is the main engine. It runs as a subprocess and writes to stdout (streamed by the Flask thread) and generates an HTML report file. `healthchecks/ai_analysis.py` (~1100 lines) provides the AI investigation loop, Gemini API integration, SSH command safety/fixing, and the AI summary layer.
 
 ### Check registry
 
@@ -168,16 +172,17 @@ graph TD
     RunChecks --> Parse[Parse oc Output]
     Parse --> Classify{Failures Found?}
     Classify -->|No| Report[Generate HTML Report]
-    Classify -->|Yes| MatchIssues["analyze_failures()<br>Match known_issues.json (dynamic)"]
+    Classify -->|Yes| MatchIssues["analyze_failures()<br>Match known_issues.json"]
     MatchIssues --> DeepInvest{"--ai flag?"}
-    DeepInvest -->|Yes| Investigate["run_deep_investigation()<br>13 command sets"]
+    DeepInvest -->|Yes| ParallelInvest["run_deep_investigation()<br>ThreadPoolExecutor (4 workers)"]
     DeepInvest -->|No| AiRCA
-    Investigate --> RootCause["determine_root_cause()<br>keyword matching"]
-    RootCause --> JiraBugs["check_jira_bugs()<br>(optional)"]
-    JiraBugs --> RuleHTML["Generate rule-based<br>RCA HTML"]
+    ParallelInvest --> L1["Level 1: Rule-based commands<br>investigate_issue()"]
+    L1 --> L2["Level 2: Symptom drill-down<br>run_drilldown()"]
+    L2 --> L3["Level 3: AI investigation loop<br>ai_investigate() (3-5 rounds)"]
+    L3 --> RuleHTML["Generate RCA HTML"]
     RuleHTML --> AiRCA{"--ai-rca flag?"}
     AiRCA -->|No| Report
-    AiRCA -->|Yes| GeminiCall["analyze_with_gemini()<br>data + pattern findings"]
+    AiRCA -->|Yes| GeminiCall["analyze_with_gemini()<br>full-report AI summary"]
     GeminiCall --> Report
     Report --> Email["send_email_report()<br>(optional)"]
     Email --> Done[Exit]
@@ -185,26 +190,105 @@ graph TD
 
 ### RCA pipeline
 
-The RCA system has two layers: a deterministic rule-based engine and an optional AI-powered analysis.
+The RCA system has three investigation levels plus an optional AI summary layer. Each level digs deeper than the last, and the AI investigation loop (Level 3) is self-directed -- it decides what commands to run and when the root cause is specific enough.
 
-#### Layer 1: Rule-based RCA (--ai or --rca-bugs)
+#### Parallel execution
 
-1. **Pattern matching** -- Each failure is compared against `knowledge/known_issues.json`, loaded by `knowledge_base.py`. Patterns come from 5 sources (built-in, user, learned, gemini, jira-scan). Each entry has keyword patterns, Jira bug references, root cause descriptions, and remediation suggestions.
+`run_deep_investigation()` groups all failures by their matched issue title (symptom type) and investigates **one representative per group** using a `ThreadPoolExecutor` with `max_workers=4`. If 19 failures map to 5 unique symptom types, only 5 investigations run (saving 14 duplicates). Results are applied to all similar issues in each group.
 
-2. **Investigation** -- When an issue matches, `investigation_commands` (embedded in each pattern or loaded via `load_investigation_commands()`) provides targeted `oc` commands to gather evidence (e.g., pod logs, node conditions, resource usage). Command sets cover: pod-crashloop, pod-unknown, virt-handler-memory, volumesnapshot, noobaa, metal3, etcd, migration, csi, oom, operator-degraded, operator-unavailable, node, alert.
+#### Level 1: Rule-based investigation
 
-3. **Root cause determination** -- `determine_root_cause()` scans investigation output for keywords (e.g., `oomkilled`, `crashloopbackoff`, `image pull`, `disk pressure`) and returns the highest-confidence match.
+**Step 1 -- Failure collection.** `analyze_failures()` walks every subsystem in the collected health data and creates a typed failure object for each problem found. Supported failure types: `operator-degraded`, `operator-unavailable`, `node`, `alert`, `pod` (one per unhealthy pod), `virt-handler`, `virt-handler-memory`, `volumesnapshot`, `datavolume`, `migration-failed`, `stuck-migration`, `cordoned-vms`, `etcd`, `oom`, `csi`. Each failure carries `type`, `name`, `status`, `details`, and a `raw_output` string formatted like `oc` output.
 
-4. **Jira integration** (optional) -- `check_jira_bugs()` attempts to query Jira via `mcp-proxy`. On failure, it falls back to `knowledge/known_bugs.json`. Compares bug fix versions against the cluster version to assess if a bug is fixed, open, or a regression.
+**Step 2 -- Pattern matching.** Each failure is matched against `knowledge/known_issues.json` (loaded by `knowledge_base.py`). The algorithm:
 
-#### Layer 2: Gemini AI RCA (--ai-rca)
+1. Build a search string by concatenating `"{type} {name} {status} {details}"` and lowercasing it.
+2. For each pattern entry in the knowledge base, count how many of its `pattern` keywords appear in the search string.
+3. If at least one keyword matches, the entry is a candidate. Candidates are sorted by: most keyword matches first, then most Jira references (as a specificity tiebreaker).
+4. The top candidate becomes `matched_issue`. All candidates are kept as `all_matches`.
+5. If no pattern matches, the failure gets a generic "Unknown Issue" entry with fallback suggestions.
+6. `update_last_matched()` timestamps the winning pattern in `known_issues.json` for usage tracking.
 
-`healthchecks/ai_analysis.py` provides LLM-powered root cause analysis using Google Gemini. It always runs **after** the pattern matching phase and receives the rule-based findings, so Gemini focuses on correlations and gaps rather than rediscovering known issues.
+Pattern entries come from 5 sources: built-in (seeded on first run), user (added via admin UI), learned (auto-promoted from learning system at 3+ occurrences), gemini (AI-suggested after Gemini RCA), and jira-scan (accepted from Jira API scans).
+
+**Step 3 -- Investigation commands.** `investigate_issue()` runs targeted `oc` commands via SSH to gather evidence. Each pattern entry in `known_issues.json` carries its own `investigation_commands` (baked in during seeding). `load_investigation_commands()` in `knowledge_base.py` indexes them by issue key and `inv_type`, plus includes built-in commands for generic issue types (pod-crashloop, pod-unknown) that are not knowledge-base entries.
+
+**Step 4 -- Root cause determination.** `determine_root_cause()` loads rules from `knowledge/root_cause_rules.json` and evaluates them against the combined investigation output. Each rule specifies `issue_types`, `keywords_all` (AND), `keywords_any` (OR), `cause`, `confidence`, `explanation`. Rules with `is_symptom: true` trigger Level 2 drill-down.
+
+#### Level 2: Symptom drill-down
+
+When a root cause rule has `is_symptom: true` and a `drilldown` key, the system runs `run_drilldown()` with a deeper set of commands specific to the symptom. For example, "DiskPressure" triggers disk-specific commands (`df -h`, `du -sh`, kubelet logs). Drill-downs can chain: a drill-down conclusion can specify `follow_drilldown` for a second level. The drill-down produces a more specific conclusion than Level 1.
+
+#### Level 3: AI-driven investigation loop
+
+`ai_investigate()` in `healthchecks/ai_analysis.py` runs an iterative investigation loop where Gemini AI suggests diagnostic commands, the system executes them via SSH, and the AI analyzes the results to determine the root cause. This loop continues until the AI identifies the specific responsible component or `max_rounds` (default 5) is exhausted.
+
+```mermaid
+sequenceDiagram
+    participant HC as hybrid_health_check.py
+    participant AI as ai_investigate()
+    participant Gemini as Gemini 2.5 Flash
+    participant SSH as SSH (bastion)
+    participant Node as OCP Node
+
+    HC->>AI: issue context + L1/L2 findings
+    AI->>AI: Build context, seed node IP cache
+
+    loop Round 1..5
+        AI->>Gemini: Context + "suggest commands"
+        Gemini-->>AI: {commands[], root_cause, is_final}
+        alt is_final=true AND round >= 3
+            AI-->>HC: Final root cause
+        else commands to run
+            loop Each command (max 5)
+                AI->>AI: Safety check (is_safe_command)
+                AI->>AI: Fix SSH (add core@, ConnectTimeout)
+                AI->>SSH: timeout N sh -c 'cmd 2>&1'
+                SSH->>Node: Execute diagnostic command
+                Node-->>SSH: Output
+                SSH-->>AI: stdout+stderr
+            end
+            AI->>AI: Append results, build new context
+        end
+    end
+
+    alt Max rounds exhausted
+        AI->>Gemini: "Final summary with all evidence"
+        Gemini-->>AI: Final root cause
+    end
+    AI-->>HC: (results[], conclusion)
+```
+
+**Key design decisions:**
+
+- **Self-evaluating AI.** The AI response includes `is_final` (boolean). The system only accepts `is_final=true` from round 3 onward (`min_rounds=3`), forcing at least 3 rounds of investigation. Early rounds include a hint: "You MUST suggest more commands - it is too early to claim is_final=true."
+- **Component tracing.** The AI prompts emphasize identifying the specific responsible component, workload, pod, or namespace -- not just the symptom. "Disk full" is never accepted as final; the AI must trace to WHICH pods/images/logs filled the disk.
+- **Enriched Jira context.** `_get_bug_context()` loads bug descriptions from `known_bugs.json` (29 bugs with summary, description_snippet, components, fix versions). These are injected into the investigation context as a `--- Related Known Jira Bugs ---` section, giving the AI real bug descriptions to compare against live symptoms. The final analysis prompt also instructs the AI to reference matching bugs.
+- **Directory drill-down principle.** Finding a large directory always triggers deeper `du -sh <dir>/* | sort -rh` commands until the specific consumer is identified.
+- **Node name-to-IP resolution.** `_node_ip_cache` maps OCP node hostnames to InternalIPs. Seeded from `oc get nodes -o wide` at the start of each investigation. `_fix_unbounded_commands()` auto-replaces hostnames with IPs and adds `core@` prefix for SSH to nodes.
+- **SSH hardening.** Every SSH command gets `-o ConnectTimeout=8 -o StrictHostKeyChecking=no`. Commands are wrapped with `timeout N sh -c '...'` to prevent hanging. Stderr is merged with stdout (`2>&1`) so SSH errors are visible to the AI.
+- **Read-only safety filter.** `is_safe_command()` blocks any command containing write/destructive keywords (delete, apply, patch, reboot, restart, rm, etc.).
+- **Parallel investigation.** Multiple issue types are investigated concurrently via `ThreadPoolExecutor(max_workers=4)`. Each investigation runs its own AI loop independently.
+
+**AI prompts:**
+
+| Prompt | Purpose |
+|--------|---------|
+| `AI_INVESTIGATE_SYSTEM` | Round 1: initial investigation. Suggests diagnostic commands. Includes directory drill-down and owner-tracing guidance. |
+| `AI_ANALYZE_SYSTEM` | Rounds 2+: analyzes command output, decides if root cause is specific enough or needs more digging. |
+
+Both prompts return JSON: `{commands, root_cause, confidence, is_final, fix, needs_manual}`.
+
+**Step 5 -- Jira integration** (optional). `check_jira_bugs()` attempts to query Jira via `mcp-proxy`. On failure, it falls back to `knowledge/known_bugs.json`. Compares bug fix versions against the cluster version to assess if a bug is fixed, open, or a regression.
+
+#### AI summary layer (--ai-rca)
+
+`analyze_with_gemini()` in `healthchecks/ai_analysis.py` provides a high-level LLM-powered analysis using Gemini 2.5 Pro. It always runs **after** the full investigation pipeline and receives all findings, so it focuses on cross-subsystem correlations and gaps rather than rediscovering known issues.
 
 ```mermaid
 graph LR
     Data[Health Check Data] --> Summary["_build_health_summary()<br>Distill to text"]
-    Patterns[Pattern Findings] --> RuleSummary["_build_rule_analysis_summary()<br>Summarize matched issues"]
+    Patterns[Pattern + AI Findings] --> RuleSummary["_build_rule_analysis_summary()<br>Summarize all RCA results"]
     Summary --> Prompt[Combined Prompt]
     RuleSummary --> Prompt
     Prompt --> Gemini["Gemini 2.5 Pro<br>(google-genai SDK)"]
@@ -215,18 +299,17 @@ graph LR
 
 **Design decisions:**
 
-- **Always runs after pattern matching.** When `--ai-rca` is set, `analyze_failures()` runs automatically (even without `--ai`). The pattern engine is fast and free -- its findings give Gemini a head start. With `--ai --ai-rca`, the deep investigation results are also included.
-- **Two-input prompt.** `_build_health_summary()` distills the raw cluster data. `_build_rule_analysis_summary()` distills the pattern findings (matched issue titles, Jira refs, root causes, investigation results). Both are sent in the same prompt, with instructions to confirm/challenge the rule findings and fill gaps.
-- **Graceful fallback.** If `GEMINI_API_KEY` is missing, the SDK is unavailable, or the API call fails, the pipeline continues without the AI section. The health check never breaks due to an AI failure.
-- **Token budget.** Temperature 0.3, max 4096 output tokens. Input is summarized to keep costs low (~$0.003 per run).
+- **Always runs after all investigation levels.** When `--ai-rca` is set, the full L1/L2/L3 pipeline runs first. The AI summary receives rule-based findings, drill-down results, AND AI investigation conclusions.
+- **Graceful fallback.** If `GEMINI_API_KEY` is missing, the SDK is unavailable, or the API call fails, the pipeline continues without the AI section.
 - **Markdown to HTML.** `_md_to_html()` is a line-by-line state machine that handles fenced code blocks, headers (h1-h5), bold, inline code, bullet/numbered lists (including nested), and horizontal rules. Styled for the existing dark-theme report.
 
 **Environment variables:**
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `GEMINI_API_KEY` | (none) | Google Gemini API key |
-| `GEMINI_MODEL` | `gemini-2.5-pro` | Model to use for analysis |
+| `GEMINI_API_KEY` or `GOOGLE_API_KEY` | (none) | Google Gemini API key |
+| `GEMINI_MODEL` | `gemini-2.5-pro` | Model for AI summary layer |
+| `GEMINI_INVESTIGATE_MODEL` | `gemini-2.5-pro` | Model for AI investigation loop (with chain-of-thought reasoning) |
 
 ---
 
@@ -337,9 +420,10 @@ graph TB
     end
     subgraph knowledge ["Dynamic Knowledge Base (knowledge/)"]
         KnownIssues["known_issues.json<br>Merged patterns from 5 sources"]
-        KnownBugs["known_bugs.json<br>Growing Jira bug cache"]
+        KnownBugs["known_bugs.json<br>Enriched Jira bug cache (29 bugs)"]
+        RCARules["root_cause_rules.json<br>Keyword-based root cause rules"]
     end
-    subgraph hardcoded ["Hardcoded (code only)"]
+    subgraph hardcoded ["Hardcoded (code only, not patterns)"]
         AvailChecks["AVAILABLE_CHECKS<br>15 check definitions"]
     end
     subgraph runtime ["Generated at Runtime"]
@@ -370,12 +454,13 @@ graph TB
 
 #### Dynamic knowledge base
 
-`KNOWN_ISSUES`, `INVESTIGATION_COMMANDS`, and `KNOWN_BUGS` are now externalized to JSON files in the `knowledge/` directory and loaded dynamically by `healthchecks/knowledge_base.py`. The system seeds from hardcoded dicts in `hybrid_health_check.py` on first run for backward compatibility.
+All pattern and investigation data lives in JSON files in the `knowledge/` directory, loaded dynamically by `healthchecks/knowledge_base.py`. On first run, `known_issues.json` is seeded from `_BUILTIN_SEED` in `knowledge_base.py` (18 patterns with investigation commands baked in). After seeding, all pattern data lives exclusively in JSON - there are no hardcoded pattern dicts in the engine code.
 
 | File | What it contains | Managed by |
 |------|------------------|-------------|
 | `knowledge/known_issues.json` | Merged patterns from 5 sources (built-in, user, learned, gemini, jira-scan). Each pattern has `pattern`, `jira`, `description`, `root_cause`, `suggestions`, plus `source`, `confidence`, `created`, `last_matched`, `investigation_commands`. | `healthchecks/knowledge_base.py` |
 | `knowledge/known_bugs.json` | Growing Jira bug cache: status, resolution, fix versions, affected versions. Fallback when Jira MCP is unreachable. | `healthchecks/knowledge_base.py` |
+| `knowledge/root_cause_rules.json` | Rules for `determine_root_cause()`. Each rule has `issue_types`, `keywords_all`, `keywords_any`, `cause`, `confidence`, `explanation`, optional `is_symptom` and `drilldown`. Rules with `is_symptom: true` trigger Level 2 drill-down. | `healthchecks/knowledge_base.py`, admin UI |
 
 `AVAILABLE_CHECKS` remains in `config/settings.py` (15 check definitions: name, icon, description, category, `oc` commands). Drives both the UI and the check runner.
 
@@ -383,11 +468,12 @@ graph TB
 
 The knowledge base is loaded and merged by `healthchecks/knowledge_base.py`. Key files:
 
-- **`knowledge/known_issues.json`** - Merged patterns from 5 sources: built-in (shipped with code), user (admin UI), learned (3+ occurrences auto-promoted from learning system), gemini (AI-suggested after analysis), jira-scan (accepted Jira suggestions).
-- **`knowledge/known_bugs.json`** - Growing Jira bug cache, seeded from hardcoded dicts and extended when Jira MCP returns new bugs.
-- **`healthchecks/knowledge_base.py`** - Load/save/merge logic: `load_known_issues()`, `load_known_bugs()`, `load_investigation_commands()`, `save_known_issue()`, `save_known_bug()`, `update_last_matched()`.
+- **`knowledge/known_issues.json`** - Merged patterns from 5 sources: built-in (seeded from `_BUILTIN_SEED` in `knowledge_base.py`), user (admin UI), learned (3+ occurrences auto-promoted from learning system), gemini (AI-suggested after analysis), jira-scan (accepted Jira suggestions). Each pattern carries its own `investigation_commands`.
+- **`knowledge/known_bugs.json`** - Enriched Jira bug cache with 29 bugs. Each entry stores `summary`, `description_snippet` (300-char problem description), `components` (Jira component names), plus status, resolution, fix versions, affected versions. Bug descriptions are injected into the AI investigation context via `_get_bug_context()` so the AI can compare live symptoms against known bug patterns. Refreshable via admin UI (pulls rich fields from Jira REST API).
+- **`knowledge/root_cause_rules.json`** - Keyword-based rules for `determine_root_cause()`. Rules with `is_symptom: true` trigger the Level 2 drill-down pipeline. Ships with 35+ built-in rules.
+- **`healthchecks/knowledge_base.py`** - Load/save/merge logic: `load_known_issues()`, `load_known_bugs()`, `load_investigation_commands()`, `save_known_issue()`, `save_known_bug()`, `update_last_matched()`. Also contains `_BUILTIN_SEED` (18 patterns with investigation commands) used for first-run seeding.
 
-Each pattern has fields: `source`, `confidence`, `created`, `last_matched`, `investigation_commands`. The system seeds from hardcoded dicts in `hybrid_health_check.py` on first run for backward compatibility.
+Each pattern has fields: `source`, `confidence`, `created`, `last_matched`, `investigation_commands`. On first run, `known_issues.json` is seeded from `_BUILTIN_SEED` in `knowledge_base.py`. After that, all data lives exclusively in JSON.
 
 Five knowledge sources:
 
@@ -402,7 +488,7 @@ Five knowledge sources:
 ```mermaid
 graph TB
     subgraph sources [Knowledge Sources]
-        BuiltIn[built-in<br>hybrid_health_check.py seed]
+        BuiltIn[built-in<br>knowledge_base.py seed]
         User[user<br>admin UI]
         Learned[learned<br>3+ occurrences]
         Gemini[gemini<br>AI suggestions]
@@ -411,10 +497,13 @@ graph TB
     subgraph store [Central Data Store]
         KnownIssues[knowledge/known_issues.json]
         KnownBugs[knowledge/known_bugs.json]
+        RCRules[knowledge/root_cause_rules.json]
     end
-    subgraph engine [Pattern Engine]
+    subgraph engine [Investigation Engine]
         PatternMatch[analyze_failures]
-        InvCmds[run_deep_investigation]
+        RootCause[determine_root_cause]
+        Drilldown[run_drilldown]
+        AILoop[ai_investigate]
         JiraCheck[check_jira_bugs]
     end
 
@@ -424,7 +513,10 @@ graph TB
     Gemini --> KnownIssues
     JiraScan --> KnownIssues
     KnownIssues --> PatternMatch
-    KnownIssues --> InvCmds
+    RCRules --> RootCause
+    RootCause -->|"is_symptom?"| Drilldown
+    Drilldown --> AILoop
+    KnownBugs -->|"_get_bug_context()"| AILoop
     KnownBugs --> JiraCheck
 ```
 
@@ -439,10 +531,14 @@ User clicks "Run" in Dashboard
     │
     ├─ SSH + oc commands ─────────────────→ Live cluster data
     │
-    ├─ Pattern matching ──────────────────→ knowledge/known_issues.json (via knowledge_base.py)
-    ├─ Deep investigation (--ai) ─────────→ investigation_commands from known_issues.json
+    ├─ L1: Pattern matching ──────────────→ knowledge/known_issues.json
+    ├─ L1: Root cause rules ──────────────→ knowledge/root_cause_rules.json
+    ├─ L2: Symptom drill-down ────────────→ Deeper SSH commands (when is_symptom=true)
+    ├─ L3: AI investigation loop ─────────→ Gemini 2.5 Flash (iterative SSH commands)
+    ├─    (parallel per issue type) ──────→ ThreadPoolExecutor (4 workers)
+    ├─    (enriched Jira context) ────────→ known_bugs.json (29 bugs with descriptions fed to AI)
     ├─ Jira bug matching ─────────────────→ knowledge/known_bugs.json (fallback when MCP unreachable)
-    ├─ Gemini AI analysis (--ai-rca) ─────→ Gemini API (external)
+    ├─ AI summary (--ai-rca) ─────────────→ Gemini 2.5 Pro (correlation analysis)
     │
     ├─ Pattern learning ──────────────────→ .learning_data.json (updated)
     ├─ HTML report saved ─────────────────→ reports/ directory
@@ -505,11 +601,13 @@ Five configuration sources, listed by precedence (highest to lowest):
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| Gemini AI RCA | **Functional** | `healthchecks/ai_analysis.py` -- calls Gemini 2.5 Pro via `google-genai` SDK. Activated with `--ai-rca` flag. |
+| AI investigation loop | **Functional** | `ai_investigate()` in `ai_analysis.py` -- Gemini 2.5 Flash runs iterative diagnostic commands (3-5 rounds). Activated with `--ai` flag. |
+| Gemini AI summary | **Functional** | `analyze_with_gemini()` in `ai_analysis.py` -- Gemini 2.5 Pro high-level correlation analysis. Activated with `--ai-rca` flag. |
+| RCA engine (rule-based) | Fully functional | 3-level pipeline: pattern matching, symptom drill-down, AI investigation. Parallel execution via ThreadPoolExecutor. |
+| Node SSH automation | Functional | Auto-resolves node hostnames to InternalIPs, adds `core@` prefix, ConnectTimeout, stderr capture. |
 | CrewAI multi-agent health check | CLI only | `healthchecks/crewai_agents.py` -- not integrated into dashboard |
 | Ollama (local LLM) | Config stored, not wired | Settings UI saves model/URL but `hybrid_health_check.py` does not use them |
-| RCA engine (rule-based) | Fully functional | Pattern matching against dynamic known_issues.json, investigation commands per pattern |
-| Jira integration | Functional with fallback | Tries MCP, falls back to `knowledge/known_bugs.json` |
+| Jira integration | Functional with fallback | Tries MCP, falls back to `knowledge/known_bugs.json`. Enriched cache (29 bugs with summary, description, components) fed to AI during investigation via `_get_bug_context()`. |
 | Email search | Stub | `search_emails_for_issues()` builds keywords but calls nothing |
 
 ---
@@ -536,16 +634,17 @@ ocp-health-crew/
 │   │   └── admin_knowledge.html   # Admin UI for knowledge base management
 │   └── static/                    # CSS, images
 ├── healthchecks/
-│   ├── hybrid_health_check.py     # Main engine: SSH checks, RCA, HTML reports
-│   ├── knowledge_base.py          # Dynamic knowledge: load/save/merge known_issues, known_bugs
-│   ├── ai_analysis.py             # Gemini AI RCA: API call, prompt, markdown-to-HTML
+│   ├── hybrid_health_check.py     # Main engine: SSH checks, 3-level RCA, HTML reports
+│   ├── knowledge_base.py          # Dynamic knowledge: load/save/merge, built-in seed data
+│   ├── ai_analysis.py             # AI investigation loop, Gemini API, SSH safety, AI summary
 │   ├── cnv_scenarios.py           # kube-burner scenario runner
 │   ├── cnv_report.py              # CNV scenario HTML report generator
 │   ├── simple_health_check.py     # Minimal CLI health check
 │   └── crewai_agents.py           # CrewAI agents (standalone, CLI only)
 ├── knowledge/
 │   ├── known_issues.json          # Merged patterns from 5 sources
-│   └── known_bugs.json            # Jira bug cache
+│   ├── known_bugs.json            # Enriched Jira bug cache (29 bugs with descriptions)
+│   └── root_cause_rules.json      # Root cause determination rules (keyword matching)
 ├── tools/
 │   └── ssh_tool.py                # CrewAI BaseTool for SSH commands
 ├── scripts/

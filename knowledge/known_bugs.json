@@ -1,295 +1,321 @@
 {
   "CNV-66551": {
     "status": "Closed",
-    "resolution": "Done",
-    "fix_versions": [
-      "CNV 4.17.0"
-    ],
-    "affects": [
-      "CNV 4.16"
-    ],
+    "resolution": "Done-Errata",
+    "fix_versions": ["CNV v4.17.42"],
+    "affects": ["CNV 4.16"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "virt-handler pods using more memory than expected per cnv_abnormal metric",
+    "description_snippet": "cnv_abnormal metric shows escalating memory_working_set_delta_from_request for virt-handler (422625280). container_memory_rss: nodeX 8420933632 (~8.4GB), nodeY 726069248 (~726MB). OCP 4.17.11, CNV 4.17.3.",
+    "components": ["CNV Virt-Node"]
   },
   "CNV-71448": {
-    "status": "In Progress",
+    "status": "New",
     "resolution": null,
-    "fix_versions": [],
-    "affects": [
-      "CNV 4.17",
-      "CNV 4.18"
-    ],
+    "fix_versions": ["CNV v4.22.0"],
+    "affects": ["CNV 4.17", "CNV 4.18"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "virt-handler memory increase",
+    "description_snippet": "virt-handler memory increase with spiky goroutine usage after EUS upgrade OCP 4.18->4.20, CNV 4.18->4.20. Increased memory usage w/ spiky goroutine usage.",
+    "components": ["CNV Virt-Node"]
   },
   "CNV-30274": {
     "status": "Closed",
-    "resolution": "Done",
-    "fix_versions": [
-      "CNV 4.15.0"
-    ],
-    "affects": [
-      "CNV 4.14"
-    ],
+    "resolution": "Obsolete",
+    "fix_versions": ["CNV v4.16.0"],
+    "affects": ["CNV 4.14"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "virt-handler memory and cpu usage are hardcoded and set too low for large scale",
+    "description_snippet": "Large-scale setup: 132 nodes, 6000 VMs. At 3000 VMs virt-handler consuming 314-329Mi, exceeds requests. Triggers KubeVirtComponentExceedsRequestedMemory alerts. Causes Degraded state in OpenShift Virtualization.",
+    "components": ["CNV Virtualization"]
   },
   "CNV-68292": {
     "status": "Closed",
     "resolution": "Done",
-    "fix_versions": [
-      "CNV 4.17.1"
-    ],
-    "affects": [
-      "CNV 4.17.0"
-    ],
+    "fix_versions": ["CNV 4.17.1"],
+    "affects": ["CNV 4.17.0"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": null,
+    "description_snippet": null,
+    "components": null
   },
   "CNV-70607": {
-    "status": "In Progress",
+    "status": "ON_QA",
     "resolution": null,
-    "fix_versions": [],
-    "affects": [
-      "CNV 4.17"
-    ],
+    "fix_versions": ["CNV v4.21.z"],
+    "affects": ["CNV 4.17"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "virt-handler is hotlooping detecting the completion of a migration, node drain is stuck",
+    "description_snippet": "virt-handler hot-loops detecting migration completion (migration-target.go:213) thousands of times. Removes Status.EvacuationNodeName preventing new migration, blocking node drain. At scale (10k VMIs). CNV 4.20.",
+    "components": ["CNV Virt-Node"]
   },
   "CNV-74568": {
-    "status": "Open",
+    "status": "Verified",
     "resolution": null,
-    "fix_versions": [],
-    "affects": [
-      "CNV 4.18"
-    ],
+    "fix_versions": ["CNV v4.19.z"],
+    "affects": ["CNV 4.18"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "VM live migration breaks after upgrading the cluster",
+    "description_snippet": "Emerald Rapids CPUs: libvirt host-model changed from SapphireRapids to SierraForest after CNV upgrade. Nodes lose SapphireRapids cpu-model-migration label. Destination virt-launcher pod fails to schedule due to missing label.",
+    "components": ["CNV Virt-Node"]
   },
   "CNV-71962": {
     "status": "Closed",
-    "resolution": "Done",
-    "fix_versions": [
-      "CNV 4.17.2"
-    ],
-    "affects": [
-      "CNV 4.17"
-    ],
+    "resolution": "Done-Errata",
+    "fix_versions": ["CNV v4.21.0"],
+    "affects": ["CNV 4.17"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "VM fails to live migrate from RHCOS10 node to RHCOS9 node in dual stream cluster",
+    "description_snippet": "VM on RHCOS10 node cannot live migrate to RHCOS9 node. Fails with: internal error: client socket is closed (virError Code=1, Domain=7). 100% reproducible. CNV 4.21.",
+    "components": ["CNV Virt-Cluster"]
   },
   "CNV-74856": {
-    "status": "Open",
+    "status": "New",
     "resolution": null,
-    "fix_versions": [],
-    "affects": [
-      "CNV 4.18"
-    ],
+    "fix_versions": ["CNV v4.20.z"],
+    "affects": ["CNV 4.18"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "Live migration after workload update fails: guest CPU doesn't match specification: missing features: pdcm",
+    "description_snippet": "After CNV upgrade, live migration fails with: operation failed: guest CPU doesn't match specification: missing features: pdcm. Errored virt-launcher pods. CNV 4.19/4.20/4.21.",
+    "components": ["CNV Virt-Cluster"]
   },
   "CNV-76280": {
-    "status": "Open",
-    "resolution": null,
-    "fix_versions": [],
-    "affects": [
-      "CNV 4.18"
-    ],
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": ["CNV v4.21.1"],
+    "affects": ["CNV 4.18"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "Migration failed when migrating VM between hpp and ODF storage",
+    "description_snippet": "Migration fails between hostpath-csi-basic and OCS storage. Storage migration causes cephfs/rbd ctrlplugin pods CrashLoopBackOff. Error: pre-creation of storage target for incremental migration of disk not supported. CNV 4.20/4.21.",
+    "components": ["Storage Platform"]
   },
   "CNV-74866": {
-    "status": "In Progress",
+    "status": "New",
     "resolution": null,
-    "fix_versions": [],
-    "affects": [
-      "CNV 4.18"
-    ],
+    "fix_versions": ["CNV v4.22.0"],
+    "affects": ["CNV 4.18"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "virt-handler tight loop on uncompleted migration",
+    "description_snippet": "virt-handler and virt-launcher tight-loop monitoring uncompleted migration. High CPU, spamming logs with 'collecting domain stats' and 'Prepared migration target pod'. Node eventually crashed after a day. CNV 4.20.",
+    "components": ["CNV Virt-Node"]
   },
   "CNV-69281": {
     "status": "Closed",
-    "resolution": "Done",
-    "fix_versions": [
-      "CNV 4.17.0"
-    ],
-    "affects": [
-      "CNV 4.16"
-    ],
+    "resolution": "Done-Errata",
+    "fix_versions": ["CNV v4.20.7"],
+    "affects": ["CNV 4.16"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "parallelMigrationsPerCluster doesn't work in decentralized live migration",
+    "description_snippet": "parallelMigrationsPerCluster limit ignored in decentralized live migration. All 7 VMs migrate simultaneously despite HCO limit of 5. Always reproducible. CNV 4.20.",
+    "components": ["Storage Platform"]
   },
   "CNV-45516": {
-    "status": "Closed",
-    "resolution": "Done",
-    "fix_versions": [
-      "CNV 4.16.0"
-    ],
-    "affects": [
-      "CNV 4.15"
-    ],
+    "status": "ASSIGNED",
+    "resolution": null,
+    "fix_versions": ["CNV v4.21.z"],
+    "affects": ["CNV 4.15"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "CNV on top of CNV with external Ceph Storage creates dangling VolumeSnapshots",
+    "description_snippet": "OS image imports create dangling VolumeSnapshots without associated PVCs/PVs in virtualization-os-images namespace. Blocks cluster teardown, wastes Ceph storage. Workaround: set dataImportCronSourceFormat: pvc. CNV 4.15/4.16.",
+    "components": ["Storage Platform"]
   },
   "CNV-52369": {
-    "status": "Closed",
-    "resolution": "Done",
-    "fix_versions": [
-      "CNV 4.16.1"
-    ],
-    "affects": [
-      "CNV 4.16.0"
-    ],
+    "status": "ASSIGNED",
+    "resolution": null,
+    "fix_versions": ["CNV v4.20.z"],
+    "affects": ["CNV 4.16.0"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "VolumeSnapshot fails for VM disk created on LVM Storage with PVC Volume mode Filesystem",
+    "description_snippet": "VolumeSnapshot fails on LVM Storage (topolvm.io) with Filesystem mode. Error: rpc error: code = OutOfRange desc = requested size smaller than source logical volume. 100% reproducible. Use Block volume mode instead. CNV 4.16.",
+    "components": ["Storage Ecosystem"]
   },
   "CNV-74930": {
-    "status": "Open",
+    "status": "New",
     "resolution": null,
     "fix_versions": [],
-    "affects": [
-      "CNV 4.18"
-    ],
+    "affects": ["CNV 4.18"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "PVC and VolumeSnapshot behavior when removing default storage class",
+    "description_snippet": "Removing default storage class annotation deletes VolumeSnapshots but keeps PVCs. Inconsistent behavior between PVC and VolumeSnapshot lifecycle on storage class change. 100% reproducible. CNV 4.21.",
+    "components": ["Storage Ecosystem"]
   },
   "CNV-20450": {
-    "status": "Closed",
-    "resolution": "Done",
-    "fix_versions": [
-      "CNV 4.14.0"
-    ],
-    "affects": [
-      "CNV 4.13"
-    ],
+    "status": "New",
+    "resolution": null,
+    "fix_versions": ["CNV vfuture"],
+    "affects": ["CNV 4.13"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "Migrating VMs get scheduled to cordoned nodes and fail migration testing",
+    "description_snippet": "VMs get scheduled to cordoned nodes during migration. 38/279 VMs rescheduled within cordoned zone. Large scale: 117 nodes, 5000 VMs. Regression from 4.9.x. OCP 4.10, CNV 4.10.3.",
+    "components": ["CNV Infrastructure"]
   },
   "CNV-75962": {
-    "status": "In Progress",
+    "status": "Verified",
     "resolution": null,
     "fix_versions": [],
-    "affects": [
-      "CNV 4.18"
-    ],
+    "affects": ["CNV 4.18"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "kubevirt-migration-controller OOMKilled while scaling up to 4000 VMs",
+    "description_snippet": "kubevirt-migration-controller OOMKilled scaling to 4000 VMs. Memory increases linearly with VM count. Default limit 128Mi (later 512Mi) exceeded. Object cache grows unbounded. CNV 4.21. Requests: cpu=100m, memory=64Mi.",
+    "components": ["Storage Platform"]
   },
   "CNV-63538": {
-    "status": "Closed",
-    "resolution": "Done",
-    "fix_versions": [
-      "CNV 4.16.0"
-    ],
-    "affects": [
-      "CNV 4.15"
-    ],
+    "status": "ASSIGNED",
+    "resolution": null,
+    "fix_versions": ["CNV v4.20.z"],
+    "affects": ["CNV 4.15"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "virt-launcher pod consuming more memory than assigned to VM",
+    "description_snippet": "virt-launcher consumes 103GiB for VM with 96Gi memory limit. Expected ~97GiB per docs. Overhead exceeds documented calculations (32cpu, 96Gi memory, 1 graphic device, 1 vTPM). 100% reproducible. CNV 4.18.",
+    "components": ["CNV Documentation", "CNV Virt-Node"]
   },
   "CNV-70889": {
-    "status": "Closed",
-    "resolution": "Done",
-    "fix_versions": [
-      "CNV 4.17.0"
-    ],
-    "affects": [
-      "CNV 4.16"
-    ],
+    "status": "POST",
+    "resolution": null,
+    "fix_versions": [],
+    "affects": [],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "kubevirt-csi-controller crashes because CSI resize is not supported",
+    "description_snippet": "kubevirt-csi-controller CrashLoopBackOff: csi-resizer container fails with 'CSI driver neither supports controller resize nor node resize'. Hosted cluster with ocs-storagecluster-ceph-rbd storage. OCP 4.18.26, CNV 4.18.17.",
+    "components": ["Storage Platform"]
   },
   "OCPBUGS-48789": {
     "status": "Closed",
     "resolution": "Done",
-    "fix_versions": [
-      "OCP 4.17.0"
-    ],
-    "affects": [
-      "OCP 4.16"
-    ],
+    "fix_versions": [],
+    "affects": ["OCP 4.16"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "Servicing fails: Validation of image href for metal3-image-customization-service failed",
+    "description_snippet": "Node servicing fails: Validation of image href http://metal3-image-customization-service failed. In 2-worker clusters when one worker taken offline. metal3-image-customization pod unreachable. OCP 4.18.",
+    "components": ["Bare Metal Hardware Provisioning / baremetal-operator"]
   },
   "OCPBUGS-74962": {
-    "status": "Open",
+    "status": "New",
     "resolution": null,
     "fix_versions": [],
-    "affects": [
-      "OCP 4.18"
-    ],
+    "affects": ["OCP 4.18"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "Very High etcd Latency on 4.19",
+    "description_snippet": "etcd latency 300-500ms (target <200ms) despite good WAL <10ms, fast disk, 10Gbps network. Router pod restarts from startup probe timeout due to slow external secret loading. Multiple clusters affected. OCP 4.19.",
+    "components": ["Etcd"]
   },
   "OCPBUGS-70140": {
     "status": "In Progress",
     "resolution": null,
     "fix_versions": [],
-    "affects": [
-      "OCP 4.17"
-    ],
+    "affects": ["OCP 4.17"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": null,
+    "description_snippet": null,
+    "components": null
   },
   "OCPBUGS-69390": {
-    "status": "Closed",
-    "resolution": "Done",
-    "fix_versions": [
-      "OCP 4.17.1"
-    ],
-    "affects": [
-      "OCP 4.17.0"
-    ],
+    "status": "Verified",
+    "resolution": null,
+    "fix_versions": ["4.22.0"],
+    "affects": ["OCP 4.17.0"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "Azure disk CSI driver static provision crashed caused by segmentation fault on Azure Stack Hub",
+    "description_snippet": "Azure disk CSI driver crashes with nil pointer dereference in InsertDiskProperties during ControllerPublishVolume. Pod stuck ContainerCreating. Static provisioning with manual PV/PVC on Azure Stack Hub. OCP 4.22.",
+    "components": ["Storage / Operators"]
   },
   "OCPBUGS-47041": {
     "status": "Closed",
     "resolution": "Done",
-    "fix_versions": [
-      "OCP 4.16.0"
-    ],
-    "affects": [
-      "OCP 4.15"
-    ],
+    "fix_versions": ["OCP 4.16.0"],
+    "affects": ["OCP 4.15"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": null,
+    "description_snippet": null,
+    "components": null
   },
   "OCPBUGS-38553": {
     "status": "Closed",
     "resolution": "Done",
-    "fix_versions": [
-      "OCP 4.15.0"
-    ],
-    "affects": [
-      "OCP 4.14"
-    ],
+    "fix_versions": [],
+    "affects": ["OCP 4.14"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "Wrong NODE_IP when multiple ports on-prem",
+    "description_snippet": "Kubelet forced to listen on 0.0.0.0 instead of primary IP when node has multiple ports. baremetal-runtimecfg detects correct IP but MCO overrides to 0.0.0.0. Affects bare metal and hosted clusters. OCP 4.16-4.18.",
+    "components": ["Machine Config Operator"]
   },
   "OCPBUGS-41786": {
     "status": "Closed",
-    "resolution": "Done",
-    "fix_versions": [
-      "OCP 4.16.0"
-    ],
-    "affects": [
-      "OCP 4.15"
-    ],
+    "resolution": "Done-Errata",
+    "fix_versions": ["4.19.0"],
+    "affects": ["OCP 4.15"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "CentOS 8 is EOL - Update Dockerfile to CentOS 9 Stream",
+    "description_snippet": "Update Dockerfile from EOL CentOS 8 to CentOS 9 Stream.",
+    "components": ["Installer / openshift-ansible"]
   },
   "OCPBUGS-42135": {
     "status": "Closed",
-    "resolution": "Done",
-    "fix_versions": [
-      "OCP 4.16.0"
-    ],
-    "affects": [
-      "OCP 4.15"
-    ],
+    "resolution": "Done-Errata",
+    "fix_versions": ["4.19.0"],
+    "affects": ["OCP 4.15"],
     "source": "built-in",
-    "last_updated": "2026-03-15T21:50:38.703368"
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "Route doc link still points to 4.16 version",
+    "description_snippet": "Route documentation 'Learn more about Route' link points to 4.16 docs instead of current version. OCP 4.17/4.18.",
+    "components": ["Networking / networking-console-plugin"]
+  },
+  "CNV-78575": {
+    "status": "Closed",
+    "resolution": "Done",
+    "fix_versions": [],
+    "affects": [],
+    "source": "jira-scan",
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "kubevirt-hyperconverged operator version disappeared from OLM catalog",
+    "description_snippet": "kubevirt-hyperconverged operator 4.19.x disappeared from OLM catalog. Only 4.18.28 available. redhat-operator-index catalog image published without 4.19.x versions. Also affects OCP 4.20 catalog.",
+    "components": ["CNV Install, Upgrade and Operators"]
+  },
+  "CNV-78518": {
+    "status": "New",
+    "resolution": null,
+    "fix_versions": ["CNV v4.21.z"],
+    "affects": [],
+    "source": "jira-scan",
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "REGISTRY_SERVER does not redirect virt-exportserver image pulls in disconnected environments",
+    "description_snippet": "virt-exportserver image pulled from registry.redhat.io instead of configured mirror registry. Blocks validation checkup in air-gapped clusters. ImagePullBackOff with 'registry is blocked in registries.conf'. 100% reproducible.",
+    "components": ["CNV Install, Upgrade and Operators"]
+  },
+  "OCPBUGS-74926": {
+    "status": "POST",
+    "resolution": null,
+    "fix_versions": ["4.16.z"],
+    "affects": [],
+    "source": "jira-scan",
+    "last_updated": "2026-03-15T21:50:38.703368",
+    "summary": "In-memory certificate expiration date in oauth-apiserver namespace is too short for ELS",
+    "description_snippet": "In-memory certificate in oauth-apiserver namespace expires after 1 year, not meeting ELS term 2 period. Needs extension to 3 years. Affects OCP 4.14 to 4.19.",
+    "components": ["oauth-apiserver"]
   }
 }

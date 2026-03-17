@@ -12,6 +12,7 @@ from app.auth import log_audit
 from healthchecks.knowledge_base import (
     load_known_issues, load_known_bugs, save_known_issue, save_known_bug,
     delete_known_issue, delete_known_bug, get_stats,
+    load_root_cause_rules, save_root_cause_rule, delete_root_cause_rule,
 )
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -171,8 +172,10 @@ def knowledge():
     source_filter = request.args.get('source', '')
     if source_filter:
         issues = {k: v for k, v in issues.items() if v.get('source') == source_filter}
+    rc_rules = load_root_cause_rules()
     return render_template('admin_knowledge.html',
                            issues=issues, bugs=bugs, stats=stats,
+                           rc_rules=rc_rules,
                            source_filter=source_filter, active_page='admin')
 
 
@@ -335,7 +338,7 @@ def api_refresh_bugs():
             resp = requests.get(
                 f'{jira_url}/rest/api/2/issue/{jira_key}',
                 headers={'Authorization': f'Bearer {jira_token}'},
-                params={'fields': 'status,resolution,fixVersions,versions'},
+                params={'fields': 'status,resolution,fixVersions,versions,summary,description,components'},
                 timeout=10,
             )
             if resp.status_code == 200:
@@ -346,6 +349,16 @@ def api_refresh_bugs():
                 bugs[jira_key]['resolution'] = res.get('name') if res else None
                 bugs[jira_key]['fix_versions'] = [v['name'] for v in fields.get('fixVersions', [])]
                 bugs[jira_key]['affects'] = [v['name'] for v in fields.get('versions', [])]
+                summary = fields.get('summary')
+                if summary:
+                    bugs[jira_key]['summary'] = summary
+                desc = fields.get('description') or ''
+                if desc:
+                    clean = desc.replace('```none\n', '').replace('\n```', '').replace('\r\n', ' ').strip()
+                    bugs[jira_key]['description_snippet'] = clean[:300]
+                comps = fields.get('components', [])
+                if comps:
+                    bugs[jira_key]['components'] = [c.get('name', '') for c in comps]
                 bugs[jira_key]['last_updated'] = datetime.now().isoformat()
                 updated += 1
             elif resp.status_code != 404:
@@ -362,3 +375,72 @@ def api_refresh_bugs():
     if errors:
         msg += f' Errors: {len(errors)}'
     return jsonify({'success': True, 'message': msg, 'updated': updated, 'errors': errors})
+
+
+# -----------------------------------------------------------------------
+# Root Cause Rules management
+# -----------------------------------------------------------------------
+
+@admin_bp.route('/api/knowledge/rc-rules', methods=['GET'])
+@admin_required
+def api_list_rc_rules():
+    return jsonify(load_root_cause_rules())
+
+
+@admin_bp.route('/api/knowledge/rc-rules', methods=['POST'])
+@admin_required
+def api_create_rc_rule():
+    data = request.get_json(force=True)
+    key = data.get('key', '').strip()
+    if not key:
+        return jsonify({'success': False, 'error': 'Key is required'}), 400
+    rules = load_root_cause_rules()
+    if key in rules:
+        return jsonify({'success': False, 'error': f'Key "{key}" already exists'}), 409
+
+    from datetime import datetime
+    entry = {
+        'issue_types': [t.strip() for t in data.get('issue_types', '').split(',') if t.strip()],
+        'keywords_all': [k.strip() for k in data.get('keywords_all', '').split(',') if k.strip()],
+        'keywords_any': [k.strip() for k in data.get('keywords_any', '').split(',') if k.strip()],
+        'cause': data.get('cause', key),
+        'confidence': data.get('confidence', 'medium'),
+        'explanation': data.get('explanation', ''),
+        'source': 'user',
+        'created': datetime.now().isoformat(),
+        'last_matched': None,
+    }
+    save_root_cause_rule(key, entry)
+    log_audit('kb_create_rc_rule', target=key, details='Source: user')
+    return jsonify({'success': True, 'message': f'Root cause rule "{key}" created'})
+
+
+@admin_bp.route('/api/knowledge/rc-rules/<key>', methods=['PUT'])
+@admin_required
+def api_update_rc_rule(key):
+    rules = load_root_cause_rules()
+    if key not in rules:
+        return jsonify({'success': False, 'error': 'Not found'}), 404
+    data = request.get_json(force=True)
+    entry = rules[key]
+    if 'issue_types' in data:
+        entry['issue_types'] = [t.strip() for t in data['issue_types'].split(',') if t.strip()]
+    if 'keywords_all' in data:
+        entry['keywords_all'] = [k.strip() for k in data['keywords_all'].split(',') if k.strip()]
+    if 'keywords_any' in data:
+        entry['keywords_any'] = [k.strip() for k in data['keywords_any'].split(',') if k.strip()]
+    for field in ('cause', 'confidence', 'explanation'):
+        if field in data:
+            entry[field] = data[field]
+    save_root_cause_rule(key, entry)
+    log_audit('kb_update_rc_rule', target=key)
+    return jsonify({'success': True, 'message': f'Root cause rule "{key}" updated'})
+
+
+@admin_bp.route('/api/knowledge/rc-rules/<key>', methods=['DELETE'])
+@admin_required
+def api_delete_rc_rule(key):
+    if delete_root_cause_rule(key):
+        log_audit('kb_delete_rc_rule', target=key)
+        return jsonify({'success': True, 'message': f'Root cause rule "{key}" deleted'})
+    return jsonify({'success': False, 'error': 'Not found'}), 404
